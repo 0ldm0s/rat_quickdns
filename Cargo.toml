@@ -16,7 +16,7 @@ rat_quickmem = { path = "../rat_quickmem" }
 zerg_creep = { path = "../zerg_creep" }
 
 # Core async runtime
-tokio = { version = "1.0", features = ["net", "time", "rt", "macros", "sync", "io-util"] }
+tokio = { version = "1.0", features = ["net", "time", "rt", "macros", "sync", "io-util", "rt-multi-thread"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 
 # Serialization
@@ -87,10 +87,14 @@ smallvec = "1.11"
 tinyvec = { version = "1.6", features = ["alloc"] }
 fxhash = "0.2"
 
+# Python bindings
+pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
+
 [features]
 default = ["tokio-rustls", "reqwest", "dep:rustls-native-certs", "dep:webpki-roots"]
 tokio-rustls = ["dep:tokio-rustls", "dep:rustls-native-certs", "dep:webpki-roots"]
 reqwest = ["dep:reqwest"]
+python-bindings = ["pyo3"]
 
 [dev-dependencies]
 tokio-test = "0.4"

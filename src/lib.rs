@@ -11,6 +11,10 @@ pub mod transport;
 pub mod resolver;
 pub mod error;
 pub mod builder;
+pub mod upstream_handler;
+
+#[cfg(feature = "python-bindings")]
+pub mod python_api;
 
 pub use types::*;
 pub use transport::Transport;
@@ -18,8 +22,9 @@ pub use resolver::Resolver;
 pub use error::{DnsError, Result};
 pub use builder::{
     DnsResolverBuilder, EasyDnsResolver, DnsQueryRequest, DnsQueryResponse, DnsRecord,
-    create_dns_query, encode_dns_query, decode_dns_response
+    QueryStrategy, PerformanceMetrics, SmartDecisionEngine
 };
+pub use builder::resolver::{ResolverStats, UpstreamHealth};
 
 // 重新导出rat_quickmem的核心功能
 pub use rat_quickmem::{encode, decode, QuickMemConfig};

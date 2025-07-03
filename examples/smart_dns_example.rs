@@ -2,6 +2,7 @@
 //! 演示FIFO和智能决策模式的使用
 
 use rat_quickdns::builder::*;
+use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
 use std::time::Duration;
 use tokio;
 
@@ -14,9 +15,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fifo_resolver = DnsResolverBuilder::new()
         .query_strategy(QueryStrategy::Fifo)
         .enable_edns(true)
-        .add_udp_upstream("Google DNS".to_string(), "8.8.8.8:53".parse()?, 100)
-        .add_udp_upstream("Cloudflare DNS".to_string(), "1.1.1.1:53".parse()?, 100)
-        .add_udp_upstream("阿里DNS".to_string(), "223.5.5.5:53".parse()?, 100)
+        .add_udp_upstream("Google DNS", "8.8.8.8")
+        .add_udp_upstream("Cloudflare DNS", "1.1.1.1")
+        .add_udp_upstream("阿里DNS", "223.5.5.5")
         .build()
         .await?;
     
@@ -25,9 +26,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     for domain in &test_domains {
         println!("解析域名: {}", domain);
-        match fifo_resolver.resolve(domain).await {
-            Ok(ips) => {
-                println!("  结果: {:?}", ips);
+        let request = DnsQueryRequest {
+            query_id: None,
+            domain: domain.to_string(),
+            record_type: DnsRecordType::A,
+            enable_edns: true,
+            client_subnet: None,
+            timeout_ms: None,
+            disable_cache: false,
+        };
+        match fifo_resolver.query(request).await {
+            Ok(response) => {
+                if response.success {
+                    println!("  结果: {} 条记录", response.records.len());
+                } else {
+                    println!("  查询失败: {:?}", response.error);
+                }
             },
             Err(e) => {
                 println!("  错误: {}", e);
@@ -41,23 +55,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .query_strategy(QueryStrategy::Smart)
         .enable_edns(true)
         .region("CN".to_string())
-        .add_udp_upstream("Google DNS".to_string(), "8.8.8.8:53".parse()?, 120)
-        .add_udp_upstream("Cloudflare DNS".to_string(), "1.1.1.1:53".parse()?, 120)
-        .add_udp_upstream("阿里DNS".to_string(), "223.5.5.5:53".parse()?, 100)
-        .add_udp_upstream("腾讯DNS".to_string(), "119.29.29.29:53".parse()?, 100)
+        .add_udp_upstream("Google DNS", "8.8.8.8")
+        .add_udp_upstream("Cloudflare DNS", "1.1.1.1")
+        .add_udp_upstream("阿里DNS", "223.5.5.5")
+        .add_udp_upstream("腾讯DNS", "119.29.29.29")
         .build()
         .await?;
     
-    // 启动健康检查（每30秒检查一次）
-    smart_resolver.start_health_check(Duration::from_secs(30)).await?;
-    println!("健康检查已启动，每30秒检查一次服务器状态");
+    // 注意：健康检查功能在构建时自动启动
+    println!("智能解析器已启动，包含自动健康检查功能");
     
     // 测试智能解析
     for domain in &test_domains {
         println!("智能解析域名: {}", domain);
-        match smart_resolver.resolve(domain).await {
-            Ok(ips) => {
-                println!("  结果: {:?}", ips);
+        let request = DnsQueryRequest {
+             query_id: None,
+             domain: domain.to_string(),
+             record_type: DnsRecordType::A,
+             enable_edns: true,
+             client_subnet: None,
+             timeout_ms: None,
+             disable_cache: false,
+         };
+        match smart_resolver.query(request).await {
+            Ok(response) => {
+                if response.success {
+                    println!("  结果: {} 条记录", response.records.len());
+                } else {
+                    println!("  查询失败: {:?}", response.error);
+                }
             },
             Err(e) => {
                 println!("  错误: {}", e);
@@ -65,34 +91,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    // 3. 测试批量查询
-    println!("\n3. 测试批量查询（并发执行）");
-    let batch_domains = vec![
-        "google.com".to_string(),
-        "github.com".to_string(),
-        "stackoverflow.com".to_string(),
-        "rust-lang.org".to_string(),
-    ];
+    // 3. 测试多个域名查询
+    println!("\n3. 测试多个域名查询");
+    let batch_domains = vec!["google.com", "github.com", "stackoverflow.com", "rust-lang.org"];
     
-    let batch_results = smart_resolver.batch_query(batch_domains.clone()).await;
-    
-    for (domain, result) in batch_domains.iter().zip(batch_results.iter()) {
-        match result {
-            Ok(ips) => println!("批量查询 {}: {:?}", domain, ips),
-            Err(e) => println!("批量查询 {} 失败: {}", domain, e),
+    for domain in &batch_domains {
+        let request = DnsQueryRequest {
+             query_id: None,
+             domain: domain.to_string(),
+             record_type: DnsRecordType::A,
+             enable_edns: true,
+             client_subnet: None,
+             timeout_ms: None,
+             disable_cache: false,
+         };
+        match smart_resolver.query(request).await {
+            Ok(response) => {
+                if response.success {
+                    println!("查询 {}: 成功，ID: {}", domain, response.query_id);
+                } else {
+                    println!("查询 {}: 失败，错误: {:?}", domain, response.error);
+                }
+            },
+            Err(e) => println!("查询 {} 失败: {}", domain, e),
         }
     }
     
     // 4. 测试不同记录类型
     println!("\n4. 测试不同记录类型");
-    let record_types = vec!["A", "AAAA", "MX", "TXT"];
+    let record_types = vec![
+        ("A", DnsRecordType::A),
+        ("AAAA", DnsRecordType::AAAA),
+        ("MX", DnsRecordType::MX),
+        ("TXT", DnsRecordType::TXT),
+    ];
     
-    for record_type in &record_types {
-        println!("查询 example.com 的 {} 记录:", record_type);
-        match smart_resolver.resolve_type("example.com", record_type).await {
-            Ok(records) => {
-                for record in records {
-                    println!("  {}", record);
+    for (name, record_type) in &record_types {
+        println!("查询 example.com 的 {} 记录:", name);
+        let request = DnsQueryRequest {
+             query_id: None,
+             domain: "example.com".to_string(),
+             record_type: *record_type,
+             enable_edns: true,
+             client_subnet: None,
+             timeout_ms: None,
+             disable_cache: false,
+         };
+        match smart_resolver.query(request).await {
+            Ok(response) => {
+                if response.success {
+                    println!("  成功，响应ID: {}, 记录数: {}", response.query_id, response.records.len());
+                } else {
+                    println!("  查询失败: {:?}", response.error);
                 }
             },
             Err(e) => {
@@ -101,30 +151,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    // 5. 测试序列化查询
-    println!("\n5. 测试序列化查询（rat_quickmem集成）");
-    let query_request = create_dns_query("cloudflare.com", "A");
-    
-    match encode_dns_query(&query_request) {
-        Ok(encoded) => {
-            println!("查询请求已编码，大小: {} 字节", encoded.len());
-            
-            match smart_resolver.process_encoded_query(&encoded).await {
-                Ok(response_data) => {
-                    println!("响应已编码，大小: {} 字节", response_data.len());
-                    
-                    // 解码响应（这里简化处理）
-                    println!("查询处理完成");
-                },
-                Err(e) => {
-                    println!("处理编码查询失败: {}", e);
-                }
-            }
-        },
-        Err(e) => {
-            println!("编码查询请求失败: {}", e);
-        }
-    }
+    // 5. 测试解析器统计信息
+    println!("\n5. 查看解析器统计信息");
+    let stats = smart_resolver.get_stats().await;
+    println!("总查询数: {}", stats.total_queries);
+    println!("成功查询数: {}", stats.successful_queries);
+    println!("失败查询数: {}", stats.failed_queries);
+    println!("总上游服务器: {}", stats.total_upstreams);
+    println!("健康上游服务器: {}", stats.healthy_upstreams);
     
     println!("\n=== 示例完成 ===");
     println!("智能DNS解析器支持:");
@@ -132,8 +166,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("- 智能决策模式: 基于性能指标自动选择最优服务器");
     println!("- 健康检查: 定期监控服务器状态和性能");
     println!("- EDNS支持: 自动启用扩展DNS功能");
-    println!("- 批量查询: 高效的并发域名解析");
-    println!("- 序列化集成: 与rat_quickmem库无缝集成");
+    println!("- 多域名查询: 支持多个域名的顺序查询");
+    println!("- 统计信息: 提供详细的查询统计数据");
     
     Ok(())
 }

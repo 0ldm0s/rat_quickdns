@@ -25,6 +25,8 @@ pub enum DnsError {
     Http(String),
     /// 配置错误
     Config(String),
+    /// 无效配置
+    InvalidConfig(String),
     /// 服务器错误
     Server(String),
     /// 域名不存在
@@ -36,7 +38,9 @@ pub enum DnsError {
     /// 格式错误
     FormatError,
     /// 未实现
-    NotImplemented,
+    NotImplemented(String),
+    /// 无可用上游服务器
+    NoUpstreamAvailable,
 }
 
 impl fmt::Display for DnsError {
@@ -50,12 +54,14 @@ impl fmt::Display for DnsError {
             DnsError::Tls(msg) => write!(f, "TLS error: {}", msg),
             DnsError::Http(msg) => write!(f, "HTTP error: {}", msg),
             DnsError::Config(msg) => write!(f, "Config error: {}", msg),
+            DnsError::InvalidConfig(msg) => write!(f, "Invalid config: {}", msg),
             DnsError::Server(msg) => write!(f, "Server error: {}", msg),
             DnsError::NxDomain => write!(f, "Domain not found"),
             DnsError::Refused => write!(f, "Query refused"),
             DnsError::ServerFailure => write!(f, "Server failure"),
             DnsError::FormatError => write!(f, "Format error"),
-            DnsError::NotImplemented => write!(f, "Not implemented"),
+            DnsError::NotImplemented(msg) => write!(f, "Not implemented: {}", msg),
+            DnsError::NoUpstreamAvailable => write!(f, "No upstream server available"),
         }
     }
 }

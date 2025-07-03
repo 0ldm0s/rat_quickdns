@@ -15,7 +15,8 @@ pub mod strategy;
 pub mod cache;
 pub mod health;
 
-use strategy::{QueryStrategy, QueryResult};
+use strategy::QueryStrategy;
+use strategy::QueryResult;
 use cache::DnsCache;
 use health::HealthChecker;
 
@@ -57,6 +58,14 @@ pub struct ResolverConfig {
     pub health_check_interval: Duration,
     /// 默认客户端子网信息
     pub default_client_subnet: Option<ClientSubnet>,
+    /// DNS服务器端口
+    pub port: u16,
+    /// 并发查询数量
+    pub concurrent_queries: usize,
+    /// 是否启用递归查询
+    pub recursion_desired: bool,
+    /// 查询缓冲区大小
+    pub buffer_size: usize,
 }
 
 impl Default for ResolverConfig {
@@ -70,6 +79,10 @@ impl Default for ResolverConfig {
             enable_health_check: true,
             health_check_interval: Duration::from_secs(30),
             default_client_subnet: None,
+            port: 53,
+            concurrent_queries: 10,
+            recursion_desired: true,
+            buffer_size: 4096,
         }
     }
 }

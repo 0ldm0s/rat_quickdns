@@ -248,14 +248,17 @@ let resolver = DnsResolverBuilder::new()
 
 查看`examples/`目录获取更多示例：
 
-- `easy_dns_example.rs` - 基础用法示例
-- `tauri_integration_example.rs` - Tauri集成示例
-- `pyo3_integration_example.rs` - PyO3集成示例
+- [`smart_dns_example.rs`](examples/smart_dns_example.rs) - 智能DNS解析器示例（✅ 测试成功）
+- [`tauri_integration_example.rs`](examples/tauri_integration_example.rs) - Tauri集成示例
 
 运行示例：
 
 ```bash
-cargo run --example easy_dns_example
+# 智能DNS解析器示例（支持FIFO和智能决策模式）
+cargo run --example smart_dns_example
+
+# Tauri集成示例（仅代码演示）
+cargo run --example tauri_integration_example
 ```
 
 ## ✨ 特性
@@ -786,27 +789,25 @@ rat_quickdns = { version = "0.1.0", features = [
 
 查看 `examples/` 目录中的更多示例：
 
-- [`simple_query.rs`](examples/simple_query.rs) - 基本 DNS 查询
-- [`client_subnet_example.rs`](examples/client_subnet_example.rs) - 客户端IP转发功能演示
-- [`secure_dns.rs`](examples/secure_dns.rs) - DoT/DoH 安全查询
-- [`load_balancing.rs`](examples/load_balancing.rs) - 负载均衡配置
-- [`caching_demo.rs`](examples/caching_demo.rs) - 缓存功能演示
-- [`filtering_demo.rs`](examples/filtering_demo.rs) - 查询过滤演示
+- [`smart_dns_example.rs`](examples/smart_dns_example.rs) - 智能DNS解析器示例（✅ 测试成功）
+  - 演示FIFO和智能决策模式的使用
+  - 支持多种DNS记录类型查询（A、AAAA、MX、TXT）
+  - 包含健康检查和统计信息功能
+  - 支持多上游服务器配置和负载均衡
+
+- [`tauri_integration_example.rs`](examples/tauri_integration_example.rs) - Tauri集成示例
+  - 演示如何在Tauri应用中集成rat_quickdns
+  - 提供前端和后端的完整代码示例
+  - 支持域名解析、批量查询和二进制数据处理
 
 运行示例：
 
 ```bash
-# 基本查询示例
-cargo run --example simple_query --features tokio
+# 智能DNS解析器示例（推荐）
+cargo run --example smart_dns_example
 
-# 客户端IP转发示例
-cargo run --example client_subnet_example
-
-# 安全 DNS 示例
-cargo run --example secure_dns --features "dot,doh"
-
-# 负载均衡示例
-cargo run --example load_balancing --features full
+# Tauri集成示例（仅代码演示）
+cargo run --example tauri_integration_example
 ```
 
 ## 🧪 测试

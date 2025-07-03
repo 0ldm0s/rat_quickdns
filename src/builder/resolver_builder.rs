@@ -1,0 +1,274 @@
+//! DNS解析器构建器模块
+//! 
+//! 本模块提供了构建DNS解析器的Builder模式实现
+
+use std::sync::Arc;
+use std::time::Duration;
+use rat_quickmem::QuickMemConfig;
+
+use crate::resolver::ResolverConfig;
+use crate::upstream_handler::{UpstreamManager, UpstreamSpec};
+use crate::error::{DnsError, Result};
+use super::{
+    strategy::QueryStrategy,
+    engine::SmartDecisionEngine,
+    resolver::EasyDnsResolver,
+};
+
+/// DNS解析器构建器
+#[derive(Debug)]
+pub struct DnsResolverBuilder {
+    /// 解析器配置
+    config: ResolverConfig,
+    
+    /// 上游管理器
+    upstream_manager: UpstreamManager,
+    
+    /// QuickMem配置
+    quickmem_config: QuickMemConfig,
+    
+    /// 查询策略
+    query_strategy: QueryStrategy,
+    
+    /// 是否启用EDNS
+    enable_edns: bool,
+    
+    /// 当前区域
+    current_region: String,
+}
+
+impl Default for DnsResolverBuilder {
+    fn default() -> Self {
+        Self {
+            config: ResolverConfig::default(),
+            upstream_manager: UpstreamManager::new(),
+            quickmem_config: QuickMemConfig {
+                max_data_size: 10 * 1024 * 1024, // 10MB
+                max_batch_count: 1000,
+                pool_initial_capacity: 1024,
+                pool_max_capacity: 10 * 1024 * 1024,
+                enable_parallel: true,
+            },
+            query_strategy: QueryStrategy::Smart,
+            enable_edns: true,
+            current_region: "default".to_string(),
+        }
+    }
+}
+
+impl DnsResolverBuilder {
+    /// 创建新的构造器
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    /// 设置查询策略
+    pub fn query_strategy(mut self, strategy: QueryStrategy) -> Self {
+        self.query_strategy = strategy;
+        self
+    }
+    
+    /// 启用/禁用EDNS
+    pub fn enable_edns(mut self, enable: bool) -> Self {
+        self.enable_edns = enable;
+        self
+    }
+    
+    /// 设置当前区域
+    pub fn region(mut self, region: impl Into<String>) -> Self {
+        self.current_region = region.into();
+        self
+    }
+    
+    /// 添加UDP上游服务器
+    pub fn add_udp_upstream(mut self, name: impl Into<String>, server: impl Into<String>) -> Self {
+        let spec = UpstreamSpec::udp(name.into(), server.into());
+        let _ = self.upstream_manager.add_upstream(spec); // 忽略错误，在build时处理
+        self
+    }
+    
+    /// 添加TCP上游服务器
+    pub fn add_tcp_upstream(mut self, name: impl Into<String>, server: impl Into<String>) -> Self {
+        let spec = UpstreamSpec::tcp(name.into(), server.into());
+        let _ = self.upstream_manager.add_upstream(spec);
+        self
+    }
+    
+    /// 添加DoH上游服务器
+    pub fn add_doh_upstream(mut self, name: impl Into<String>, url: impl Into<String>) -> Self {
+        let spec = UpstreamSpec::doh(name.into(), url.into());
+        let _ = self.upstream_manager.add_upstream(spec);
+        self
+    }
+    
+    /// 添加DoT上游服务器
+    pub fn add_dot_upstream(mut self, name: impl Into<String>, server: impl Into<String>) -> Self {
+        let spec = UpstreamSpec::dot(name.into(), server.into());
+        let _ = self.upstream_manager.add_upstream(spec);
+        self
+    }
+    
+    /// 添加自定义上游配置
+    pub fn add_upstream(mut self, spec: UpstreamSpec) -> Result<Self> {
+        self.upstream_manager.add_upstream(spec)?;
+        Ok(self)
+    }
+    
+    /// 批量添加上游服务器
+    pub fn add_upstreams(mut self, specs: Vec<UpstreamSpec>) -> Result<Self> {
+        for spec in specs {
+            self.upstream_manager.add_upstream(spec)?;
+        }
+        Ok(self)
+    }
+    
+    /// 添加常用的公共DNS服务器
+    pub fn with_public_dns(mut self) -> Result<Self> {
+        // 国内DNS服务器
+        self = self.add_udp_upstream("阿里DNS", "223.5.5.5");
+        self = self.add_udp_upstream("腾讯DNS", "119.29.29.29");
+        self = self.add_udp_upstream("114DNS", "114.114.114.114");
+        
+        // 国际DNS服务器
+        self = self.add_udp_upstream("Google DNS", "8.8.8.8");
+        self = self.add_udp_upstream("Cloudflare DNS", "1.1.1.1");
+        
+        // DoH服务器
+        self = self.add_doh_upstream("阿里DoH", "https://dns.alidns.com/dns-query");
+        self = self.add_doh_upstream("腾讯DoH", "https://doh.pub/dns-query");
+        self = self.add_doh_upstream("Cloudflare DoH", "https://cloudflare-dns.com/dns-query");
+        
+        // DoT服务器
+        self = self.add_dot_upstream("阿里DoT", "223.5.5.5");
+        self = self.add_dot_upstream("腾讯DoT", "1.12.12.12");
+        
+        Ok(self)
+    }
+    
+    /// 设置查询超时时间
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.config.default_timeout = timeout;
+        self
+    }
+    
+    /// 设置重试次数
+    pub fn with_retry_count(mut self, count: usize) -> Self {
+        self.config.retry_count = count;
+        self
+    }
+    
+    /// 启用/禁用缓存
+    pub fn with_cache(mut self, enable: bool) -> Self {
+        self.config.enable_cache = enable;
+        self
+    }
+    
+    /// 设置缓存TTL上限
+    pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
+        self.config.max_cache_ttl = ttl;
+        self
+    }
+    
+    /// 启用/禁用健康检查
+    pub fn with_health_check(mut self, enable: bool) -> Self {
+        self.config.enable_health_check = enable;
+        self
+    }
+    
+    /// 设置QuickMem配置
+    pub fn with_quickmem_config(mut self, config: QuickMemConfig) -> Self {
+        self.quickmem_config = config;
+        self
+    }
+    
+    /// 设置DNS服务器端口
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.config.port = port;
+        self
+    }
+    
+    /// 设置并发查询数量
+    pub fn with_concurrent_queries(mut self, count: usize) -> Self {
+        self.config.concurrent_queries = count;
+        self
+    }
+    
+    /// 启用/禁用递归查询
+    pub fn with_recursion(mut self, enable: bool) -> Self {
+        self.config.recursion_desired = enable;
+        self
+    }
+    
+    /// 设置查询缓冲区大小
+    pub fn with_buffer_size(mut self, size: usize) -> Self {
+        self.config.buffer_size = size;
+        self
+    }
+    
+    /// 构建解析器
+    pub async fn build(self) -> Result<EasyDnsResolver> {
+        if self.upstream_manager.get_specs().is_empty() {
+            return Err(DnsError::InvalidConfig("No upstream servers configured".to_string()));
+        }
+        
+        // 验证上游服务器配置
+        for spec in self.upstream_manager.get_specs() {
+            if spec.name.is_empty() {
+                return Err(DnsError::InvalidConfig("Upstream name cannot be empty".to_string()));
+            }
+            if spec.server.is_empty() {
+                return Err(DnsError::InvalidConfig(
+                    format!("Server address cannot be empty for upstream '{}'", spec.name)
+                ));
+            }
+        }
+        
+        let decision_engine = match self.query_strategy {
+            QueryStrategy::Smart => {
+                let mut engine = SmartDecisionEngine::new(self.current_region.clone());
+                
+                // 添加所有上游服务器到决策引擎
+                for spec in self.upstream_manager.get_specs() {
+                    engine.add_upstream(spec.clone()).await?;
+                }
+                
+                Some(Arc::new(engine))
+            },
+            _ => None,
+        };
+        
+        EasyDnsResolver::new(
+            self.config,
+            self.upstream_manager,
+            self.quickmem_config,
+            decision_engine,
+            self.query_strategy,
+            self.enable_edns,
+        )
+    }
+    
+    /// 获取当前配置的上游服务器数量
+    pub fn upstream_count(&self) -> usize {
+        self.upstream_manager.get_specs().len()
+    }
+    
+    /// 获取当前查询策略
+    pub fn current_strategy(&self) -> QueryStrategy {
+        self.query_strategy
+    }
+    
+    /// 检查是否启用了EDNS
+    pub fn is_edns_enabled(&self) -> bool {
+        self.enable_edns
+    }
+    
+    /// 获取当前区域
+    pub fn current_region(&self) -> &str {
+        &self.current_region
+    }
+    
+    /// 获取上游管理器的引用
+    pub fn upstream_manager(&self) -> &UpstreamManager {
+        &self.upstream_manager
+    }
+}
