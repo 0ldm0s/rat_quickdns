@@ -23,6 +23,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
+bincode = "2.0"
 
 # Networking and HTTP
 hyper = { version = "1.0", features = ["client", "http1", "http2"] }
@@ -63,6 +64,7 @@ async-trait = "0.1"
 socket2 = "0.5"
 hyper-tls = "0.6"
 tokio-native-tls = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }

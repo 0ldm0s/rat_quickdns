@@ -20,7 +20,7 @@ use cache::DnsCache;
 use health::HealthChecker;
 
 /// 智能DNS解析器
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Resolver {
     /// 传输层实例
     transports: Vec<Arc<dyn Transport + Send + Sync + 'static>>,
@@ -221,8 +221,10 @@ impl Resolver {
         }
     }
     
-    /// 最快优先策略
+    /// 最快优先策略（优化版：支持早期取消）
     async fn query_fastest_first(&self, request: &Request) -> Result<Response> {
+        use tokio::sync::{oneshot, broadcast};
+        
         // 获取健康的传输实例
         let healthy_transports = self.get_healthy_transports();
         
@@ -230,64 +232,110 @@ impl Resolver {
             return Err(DnsError::Server("No healthy transports available".to_string()));
         }
         
-        // 并发查询所有传输，返回最快的结果
+        // 创建取消通道，用于在获得第一个成功响应后取消其他任务
+        let (cancel_tx, _) = broadcast::channel::<()>(1);
+        let cancel_tx = Arc::new(cancel_tx);
+        let (success_tx, mut success_rx) = oneshot::channel();
+        let success_tx = Arc::new(tokio::sync::Mutex::new(Some(success_tx)));
+        
+        // 并发查询所有传输
         let mut tasks = Vec::new();
         
         for transport in healthy_transports {
             let transport_clone = Arc::clone(&transport);
             let request_clone = request.clone();
+            let mut cancel_rx = cancel_tx.subscribe();
+            let success_tx_clone = success_tx.clone();
+            let cancel_tx_clone = cancel_tx.clone();
+            let health_checker = self.health_checker.clone();
             
             let task = tokio::spawn(async move {
                 let start = Instant::now();
-                let result = transport_clone.send(&request_clone).await;
-                let duration = start.elapsed();
-                (result, duration, transport_clone.transport_type())
+                
+                // 使用select!来同时监听取消信号和DNS查询
+                tokio::select! {
+                    // DNS查询结果
+                    result = transport_clone.send(&request_clone) => {
+                        let duration = start.elapsed();
+                        let transport_type = transport_clone.transport_type();
+                        
+                        match result {
+                            Ok(response) => {
+                                // 记录成功统计
+                                if let Some(health_checker) = &health_checker {
+                                    health_checker.record_success(transport_type, duration);
+                                }
+                                
+                                // 尝试发送成功结果（只有第一个成功的会被接收）
+                                if let Ok(mut sender) = success_tx_clone.try_lock() {
+                                    if let Some(tx) = sender.take() {
+                                        let _ = tx.send(Ok(response));
+                                        // 通知其他任务取消
+                                        let _ = cancel_tx_clone.send(());
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                // 记录失败统计
+                                if let Some(health_checker) = &health_checker {
+                                    health_checker.record_failure(transport_type);
+                                }
+                                // 失败不取消其他任务，继续等待
+                            }
+                        }
+                    }
+                    // 取消信号
+                    _ = cancel_rx.recv() => {
+                        // 任务被取消，直接退出
+                        println!("[DEBUG] 传输 {} 的查询任务被取消", transport_clone.transport_type());
+                    }
+                }
             });
             
             tasks.push(task);
         }
         
-        // 等待第一个成功的结果
-        let mut last_error = DnsError::Server("All transports failed".to_string());
+        // 使用oneshot通道来处理任务完成情况
+        let (all_done_tx, all_done_rx) = oneshot::channel::<Result<Response>>();
+        let all_done_tx = Arc::new(tokio::sync::Mutex::new(Some(all_done_tx)));
         
-        while !tasks.is_empty() {
-            tokio::select! {
-                biased;
-                result = futures::future::select_all(tasks) => {
-                    let (task_result, _index, remaining) = result;
-                    tasks = remaining;
-                    
-                    match task_result {
-                        Ok((query_result, duration, transport_type)) => {
-                            match query_result {
-                                Ok(response) => {
-                                    // 记录性能统计
-                                    if let Some(health_checker) = &self.health_checker {
-                                        health_checker.record_success(transport_type, duration);
-                                    }
-                                    return Ok(response);
-                                }
-                                Err(e) => {
-                                    // 记录失败统计
-                                    if let Some(health_checker) = &self.health_checker {
-                                        health_checker.record_failure(transport_type);
-                                    }
-                                    last_error = e;
-                                    continue;
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            // 任务被取消
-                            last_error = DnsError::Server("Task cancelled".to_string());
-                            continue;
-                        }
+        // 创建一个单独的任务来等待所有查询完成
+        let all_tasks_handle = tokio::spawn({
+            let all_done_tx = all_done_tx.clone();
+            async move {
+                // 等待所有任务完成
+                let _ = futures::future::join_all(tasks).await;
+                
+                // 如果还没有成功结果，则发送失败信息
+                if let Ok(mut sender) = all_done_tx.try_lock() {
+                    if let Some(tx) = sender.take() {
+                        let _ = tx.send(Err(DnsError::Server("All transports failed".to_string())));
                     }
                 }
-            };
-        }
+            }
+        });
         
-        Err(last_error)
+        // 等待第一个成功的结果或所有任务完成
+        let result = tokio::select! {
+            // 收到成功响应
+            result = &mut success_rx => {
+                // 取消所有剩余任务
+                let _ = cancel_tx.send(());
+                match result {
+                    Ok(response) => response,
+                    Err(_) => Err(DnsError::Server("Internal communication error".to_string()))
+                }
+            }
+            // 所有任务都完成了但没有成功响应
+            result = all_done_rx => {
+                result.unwrap_or(Err(DnsError::Server("Internal communication error".to_string())))
+            }
+        };
+        
+        // 等待清理任务完成（设置短超时避免长时间等待）
+        let _ = tokio::time::timeout(Duration::from_millis(100), all_tasks_handle).await;
+        
+        result
     }
     
     /// 并行查询策略
