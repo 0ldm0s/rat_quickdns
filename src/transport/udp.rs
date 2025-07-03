@@ -1,0 +1,577 @@
+//! UDP传输实现
+
+use crate::{Request, Response, Result, DnsError};
+use crate::types::{EdnsRecord, EdnsOption, edns_option_codes};
+use super::{Transport, TransportConfig};
+use async_trait::async_trait;
+use std::time::Duration;
+use tokio::net::UdpSocket;
+use tokio::time::timeout;
+
+/// UDP传输实现
+#[derive(Debug)]
+pub struct UdpTransport {
+    config: TransportConfig,
+}
+
+impl UdpTransport {
+    /// 创建新的UDP传输
+    pub fn new(config: TransportConfig) -> Self {
+        Self { config }
+    }
+    
+    /// 使用默认配置创建UDP传输
+    pub fn default() -> Self {
+        Self::new(TransportConfig::default())
+    }
+    
+    /// Windows平台特定的socket创建
+    #[cfg(windows)]
+    async fn create_windows_socket(&self) -> Result<UdpSocket> {
+        use std::net::SocketAddr;
+        
+        println!("[DEBUG] Windows平台：开始创建UDP socket");
+        
+        // Windows平台尝试多种绑定策略
+        let bind_addresses = [
+            "0.0.0.0:0",
+            "127.0.0.1:0",
+            "::1:0",  // IPv6 localhost
+        ];
+        
+        let mut last_error = None;
+        
+        for addr in &bind_addresses {
+            println!("[DEBUG] 尝试绑定地址: {}", addr);
+            match UdpSocket::bind(addr).await {
+                Ok(socket) => {
+                    println!("[DEBUG] 成功绑定到地址: {}", addr);
+                    // 成功绑定，返回socket
+                    return Ok(socket);
+                }
+                Err(e) => {
+                    println!("[DEBUG] 绑定失败 {}: {}", addr, e);
+                    last_error = Some(e);
+                    // 继续尝试下一个地址
+                    continue;
+                }
+            }
+        }
+        
+        // 所有绑定尝试都失败
+        println!("[DEBUG] 所有绑定尝试都失败");
+        if let Some(e) = last_error {
+            Err(DnsError::Network(format!("Windows UDP socket bind failed: {}", e)))
+        } else {
+            Err(DnsError::Network("Windows UDP socket bind failed: unknown error".to_string()))
+        }
+    }
+    
+    /// Windows平台特定的socket配置
+    #[cfg(windows)]
+    async fn configure_windows_socket(&self, socket: &UdpSocket) -> Result<()> {
+        // Windows平台的socket配置
+        // 注意：tokio的UdpSocket没有直接的socket选项设置方法
+        // 这里可以添加Windows特定的配置逻辑
+        
+        // 设置接收缓冲区大小（如果需要）
+        // 在实际应用中，可能需要使用socket2 crate来设置更多选项
+        
+        Ok(())
+    }
+    
+    /// 序列化DNS请求为字节
+    pub fn serialize_request(request: &Request) -> Result<Vec<u8>> {
+        println!("[DEBUG] 开始序列化DNS请求");
+        println!("[DEBUG] 请求ID: {}", request.id);
+        println!("[DEBUG] 查询域名: '{}'", request.query.name);
+        println!("[DEBUG] 查询类型: {:?}", request.query.qtype);
+        println!("[DEBUG] 客户端子网: {:?}", request.client_subnet);
+        
+        let mut buffer = Vec::with_capacity(512);
+        
+        // 检查是否需要EDNS记录
+        let has_edns = request.client_subnet.is_some();
+        let additional_count = if has_edns { 1u16 } else { 0u16 };
+        println!("[DEBUG] 需要EDNS记录: {}, 附加记录数: {}", has_edns, additional_count);
+        
+        // DNS头部 (12字节)
+        buffer.extend_from_slice(&request.id.to_be_bytes());
+        
+        // 标志位
+        let mut flags = 0u16;
+        if request.flags.qr { flags |= 0x8000; }
+        flags |= (request.flags.opcode as u16) << 11;
+        if request.flags.aa { flags |= 0x0400; }
+        if request.flags.tc { flags |= 0x0200; }
+        if request.flags.rd { flags |= 0x0100; }
+        if request.flags.ra { flags |= 0x0080; }
+        flags |= (request.flags.z as u16) << 4;
+        flags |= request.flags.rcode as u16;
+        buffer.extend_from_slice(&flags.to_be_bytes());
+        println!("[DEBUG] DNS头部标志位: 0x{:04X}", flags);
+        
+        // 问题计数
+        buffer.extend_from_slice(&1u16.to_be_bytes());
+        // 回答计数
+        buffer.extend_from_slice(&0u16.to_be_bytes());
+        // 权威计数
+        buffer.extend_from_slice(&0u16.to_be_bytes());
+        // 附加计数
+        buffer.extend_from_slice(&additional_count.to_be_bytes());
+        println!("[DEBUG] DNS头部完成，当前缓冲区长度: {} 字节", buffer.len());
+        
+        // 查询部分
+        let name_start_pos = buffer.len();
+        Self::encode_name(&request.query.name, &mut buffer)?;
+        let name_end_pos = buffer.len();
+        println!("[DEBUG] 域名编码完成，占用 {} 字节 (位置 {}-{})", name_end_pos - name_start_pos, name_start_pos, name_end_pos);
+        
+        buffer.extend_from_slice(&u16::from(request.query.qtype).to_be_bytes());
+        buffer.extend_from_slice(&u16::from(request.query.qclass).to_be_bytes());
+        println!("[DEBUG] 查询类型和类别添加完成，当前缓冲区长度: {} 字节", buffer.len());
+        
+        // 添加EDNS记录(如果需要)
+        if let Some(ref client_subnet) = request.client_subnet {
+            println!("[DEBUG] 开始添加EDNS记录");
+            Self::encode_edns_record(&mut buffer, client_subnet)?;
+            println!("[DEBUG] EDNS记录添加完成，最终缓冲区长度: {} 字节", buffer.len());
+        }
+        
+        println!("[DEBUG] DNS请求序列化完成，总长度: {} 字节", buffer.len());
+        
+        // 打印前64字节的十六进制内容用于调试
+        let preview_len = buffer.len().min(64);
+        let hex_preview: String = buffer[..preview_len].iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(" ");
+        println!("[DEBUG] 请求数据预览 (前{}字节): {}", preview_len, hex_preview);
+        
+        Ok(buffer)
+    }
+    
+    /// 编码域名
+    pub fn encode_name(name: &str, buffer: &mut Vec<u8>) -> Result<()> {
+        println!("[DEBUG] 编码域名: '{}'", name);
+        
+        if name.is_empty() || name == "." {
+            println!("[DEBUG] 空域名或根域名，添加终止符");
+            buffer.push(0);
+            return Ok(());
+        }
+        
+        // 移除末尾的点（如果有）
+        let name = name.trim_end_matches('.');
+        println!("[DEBUG] 处理后的域名: '{}'", name);
+        
+        for (i, label) in name.split('.').enumerate() {
+            if label.is_empty() {
+                println!("[DEBUG] 跳过空标签 {}", i);
+                continue;
+            }
+            if label.len() > 63 {
+                println!("[DEBUG] 标签 '{}' 长度超过63字节", label);
+                return Err(DnsError::Protocol("Label too long".to_string()));
+            }
+            println!("[DEBUG] 添加标签 {}: '{}' (长度: {})", i, label, label.len());
+            buffer.push(label.len() as u8);
+            buffer.extend_from_slice(label.as_bytes());
+        }
+        
+        println!("[DEBUG] 添加域名终止符");
+        buffer.push(0);
+        
+        println!("[DEBUG] 域名编码完成，总长度: {} 字节", buffer.len());
+        Ok(())
+    }
+    
+    /// 反序列化DNS响应
+    pub fn deserialize_response(data: &[u8]) -> Result<Response> {
+        if data.len() < 12 {
+            return Err(DnsError::Protocol("Response too short".to_string()));
+        }
+        
+        let id = u16::from_be_bytes([data[0], data[1]]);
+        let flags_raw = u16::from_be_bytes([data[2], data[3]]);
+        
+        let flags = crate::types::Flags {
+            qr: (flags_raw & 0x8000) != 0,
+            opcode: ((flags_raw >> 11) & 0x0F) as u8,
+            aa: (flags_raw & 0x0400) != 0,
+            tc: (flags_raw & 0x0200) != 0,
+            rd: (flags_raw & 0x0100) != 0,
+            ra: (flags_raw & 0x0080) != 0,
+            z: ((flags_raw >> 4) & 0x07) as u8,
+            rcode: (flags_raw & 0x0F) as u8,
+        };
+        
+        let qdcount = u16::from_be_bytes([data[4], data[5]]);
+        let ancount = u16::from_be_bytes([data[6], data[7]]);
+        let nscount = u16::from_be_bytes([data[8], data[9]]);
+        let arcount = u16::from_be_bytes([data[10], data[11]]);
+        
+        let mut offset = 12;
+        let mut queries = Vec::new();
+        let mut answers = Vec::new();
+        let mut authorities = Vec::new();
+        let mut additionals = Vec::new();
+        
+        // 解析查询部分
+        for _ in 0..qdcount {
+            let (query, new_offset) = Self::parse_query(data, offset)?;
+            queries.push(query);
+            offset = new_offset;
+        }
+        
+        // 解析回答部分
+        for _ in 0..ancount {
+            let (record, new_offset) = Self::parse_record(data, offset)?;
+            answers.push(record);
+            offset = new_offset;
+        }
+        
+        // 解析权威部分
+        for _ in 0..nscount {
+            let (record, new_offset) = Self::parse_record(data, offset)?;
+            authorities.push(record);
+            offset = new_offset;
+        }
+        
+        // 解析附加部分
+        for _ in 0..arcount {
+            let (record, new_offset) = Self::parse_record(data, offset)?;
+            additionals.push(record);
+            offset = new_offset;
+        }
+        
+        Ok(Response {
+            id,
+            flags,
+            queries,
+            answers,
+            authorities,
+            additionals,
+        })
+    }
+    
+    /// 解析查询记录
+    pub fn parse_query(data: &[u8], offset: usize) -> Result<(crate::types::Query, usize)> {
+        let (name, mut offset) = Self::parse_name(data, offset)?;
+        
+        if offset + 4 > data.len() {
+            return Err(DnsError::Protocol("Invalid query format".to_string()));
+        }
+        
+        let qtype = u16::from_be_bytes([data[offset], data[offset + 1]]).into();
+        let qclass = u16::from_be_bytes([data[offset + 2], data[offset + 3]]).into();
+        offset += 4;
+        
+        Ok((crate::types::Query { name, qtype, qclass }, offset))
+    }
+    
+    /// 解析资源记录
+    pub fn parse_record(data: &[u8], offset: usize) -> Result<(crate::types::Record, usize)> {
+        let (name, mut offset) = Self::parse_name(data, offset)?;
+        
+        if offset + 10 > data.len() {
+            return Err(DnsError::Protocol("Invalid record format".to_string()));
+        }
+        
+        let rtype = u16::from_be_bytes([data[offset], data[offset + 1]]).into();
+        let class = u16::from_be_bytes([data[offset + 2], data[offset + 3]]).into();
+        let ttl = u32::from_be_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]]);
+        let rdlength = u16::from_be_bytes([data[offset + 8], data[offset + 9]]) as usize;
+        offset += 10;
+        
+        if offset + rdlength > data.len() {
+            return Err(DnsError::Protocol("Invalid record data length".to_string()));
+        }
+        
+        let rdata = &data[offset..offset + rdlength];
+        let record_data = Self::parse_record_data(rtype, rdata, data, offset)?;
+        offset += rdlength;
+        
+        Ok((crate::types::Record {
+            name,
+            rtype,
+            class,
+            ttl,
+            data: record_data,
+        }, offset))
+    }
+    
+    /// 解析域名
+    pub fn parse_name(data: &[u8], mut offset: usize) -> Result<(String, usize)> {
+        println!("[DEBUG] 开始解析域名，起始偏移: {}, 数据长度: {}", offset, data.len());
+        
+        let mut name = String::new();
+        let mut jumped = false;
+        let mut jump_offset = 0;
+        let mut loop_count = 0;
+        const MAX_LOOPS: usize = 100; // 防止无限循环
+        
+        loop {
+            loop_count += 1;
+            if loop_count > MAX_LOOPS {
+                println!("[DEBUG] 域名解析循环次数超限，可能存在循环引用");
+                return Err(DnsError::Protocol("Name parsing loop detected".to_string()));
+            }
+            
+            if offset >= data.len() {
+                println!("[DEBUG] 偏移量 {} 超出数据长度 {}", offset, data.len());
+                return Err(DnsError::Protocol("Name parsing overflow".to_string()));
+            }
+            
+            let len = data[offset];
+            println!("[DEBUG] 偏移 {}: 长度字节 = 0x{:02X} ({})", offset, len, len);
+            
+            if len == 0 {
+                println!("[DEBUG] 遇到域名终止符，解析完成");
+                offset += 1;
+                break;
+            }
+            
+            if (len & 0xC0) == 0xC0 {
+                // 压缩指针
+                if offset + 1 >= data.len() {
+                    println!("[DEBUG] 压缩指针数据不完整");
+                    return Err(DnsError::Protocol("Incomplete compression pointer".to_string()));
+                }
+                
+                let pointer = (((len & 0x3F) as usize) << 8) | (data[offset + 1] as usize);
+                println!("[DEBUG] 压缩指针指向偏移: {}", pointer);
+                
+                if pointer >= data.len() {
+                    println!("[DEBUG] 压缩指针 {} 超出数据范围 {}", pointer, data.len());
+                    return Err(DnsError::Protocol("Invalid compression pointer".to_string()));
+                }
+                
+                if !jumped {
+                    jump_offset = offset + 2;
+                    jumped = true;
+                    println!("[DEBUG] 设置跳转返回点: {}", jump_offset);
+                }
+                
+                offset = pointer;
+                continue;
+            }
+            
+            // 普通标签
+            if len > 63 {
+                println!("[DEBUG] 标签长度 {} 超过63字节限制", len);
+                return Err(DnsError::Protocol("Label too long".to_string()));
+            }
+            
+            offset += 1;
+            if offset + len as usize > data.len() {
+                println!("[DEBUG] 标签数据超出范围: 偏移{}+长度{} > 数据长度{}", offset, len, data.len());
+                return Err(DnsError::Protocol("Name label overflow".to_string()));
+            }
+            
+            if !name.is_empty() {
+                name.push('.');
+            }
+            
+            let label = String::from_utf8_lossy(&data[offset..offset + len as usize]);
+            println!("[DEBUG] 解析标签: '{}'", label);
+            name.push_str(&label);
+            offset += len as usize;
+        }
+        
+        if jumped {
+            offset = jump_offset;
+            println!("[DEBUG] 恢复到跳转返回点: {}", offset);
+        }
+        
+        println!("[DEBUG] 域名解析完成: '{}', 最终偏移: {}", name, offset);
+        Ok((name, offset))
+    }
+    
+    /// 解析记录数据
+    pub fn parse_record_data(
+        rtype: crate::types::RecordType,
+        rdata: &[u8],
+        full_data: &[u8],
+        rdata_offset: usize,
+    ) -> Result<crate::types::RecordData> {
+        use crate::types::{RecordType, RecordData};
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        
+        match rtype {
+            RecordType::A => {
+                if rdata.len() != 4 {
+                    return Err(DnsError::Protocol("Invalid A record length".to_string()));
+                }
+                Ok(RecordData::A(Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3])))
+            }
+            RecordType::AAAA => {
+                if rdata.len() != 16 {
+                    return Err(DnsError::Protocol("Invalid AAAA record length".to_string()));
+                }
+                let mut addr = [0u8; 16];
+                addr.copy_from_slice(rdata);
+                Ok(RecordData::AAAA(Ipv6Addr::from(addr)))
+            }
+            RecordType::CNAME | RecordType::NS | RecordType::PTR => {
+                // 使用正确的偏移量来解析域名
+                let (name, _) = Self::parse_name(full_data, rdata_offset)?;
+                match rtype {
+                    RecordType::CNAME => Ok(RecordData::CNAME(name)),
+                    RecordType::NS => Ok(RecordData::NS(name)),
+                    RecordType::PTR => Ok(RecordData::PTR(name)),
+                    _ => unreachable!(),
+                }
+            }
+            _ => Ok(RecordData::Unknown(rdata.to_vec())),
+        }
+    }
+    
+    /// 编码EDNS记录
+    pub fn encode_edns_record(buffer: &mut Vec<u8>, client_subnet: &crate::types::ClientSubnet) -> Result<()> {
+        // EDNS记录格式:
+        // NAME: . (root, 1字节: 0x00)
+        // TYPE: OPT (41, 2字节)
+        // CLASS: UDP payload size (2字节)
+        // TTL: Extended RCODE + Version + Flags (4字节)
+        // RDLENGTH: 选项数据长度 (2字节)
+        // RDATA: 选项数据
+        
+        // NAME: root domain (.)
+        buffer.push(0x00);
+        
+        // TYPE: OPT (41)
+        buffer.extend_from_slice(&41u16.to_be_bytes());
+        
+        // CLASS: UDP payload size
+        buffer.extend_from_slice(&4096u16.to_be_bytes());
+        
+        // TTL: Extended RCODE(1) + Version(1) + DO bit + Z(2)
+        buffer.push(0); // Extended RCODE
+        buffer.push(0); // Version
+        buffer.extend_from_slice(&0u16.to_be_bytes()); // Flags (DO=0, Z=0)
+        
+        // 编码Client Subnet选项
+        let client_subnet_data = client_subnet.encode();
+        let option_length = client_subnet_data.len() as u16;
+        
+        // RDLENGTH: 选项头部(4字节) + 选项数据长度
+        let rdlength = 4 + option_length;
+        buffer.extend_from_slice(&rdlength.to_be_bytes());
+        
+        // 选项代码: Client Subnet (8)
+        buffer.extend_from_slice(&edns_option_codes::CLIENT_SUBNET.to_be_bytes());
+        
+        // 选项长度
+        buffer.extend_from_slice(&option_length.to_be_bytes());
+        
+        // 选项数据
+        buffer.extend_from_slice(&client_subnet_data);
+        
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Transport for UdpTransport {
+    async fn send(&self, request: &Request) -> Result<Response> {
+        println!("[DEBUG] UDP传输开始发送请求");
+        println!("[DEBUG] 目标域名: {}", request.query.name);
+        println!("[DEBUG] 查询类型: {:?}", request.query.qtype);
+        
+        // 平台特定的socket绑定策略
+        let socket = if cfg!(windows) {
+            println!("[DEBUG] 使用Windows平台socket创建策略");
+            // Windows平台：使用特定的绑定策略
+            self.create_windows_socket().await?
+        } else {
+            println!("[DEBUG] 使用Unix/Linux平台socket创建策略");
+            // Unix/Linux平台：使用标准绑定
+            UdpSocket::bind("0.0.0.0:0").await
+                .map_err(|e| DnsError::Network(format!("Failed to bind UDP socket: {}", e)))?
+        };
+        
+        let server_addr = format!("{}:{}", self.config.server, self.config.port);
+        println!("[DEBUG] DNS服务器地址: {}", server_addr);
+        
+        // 平台特定的socket配置
+        if cfg!(windows) {
+            println!("[DEBUG] 配置Windows socket选项");
+            self.configure_windows_socket(&socket).await?;
+        }
+        
+        let request_data = Self::serialize_request(request)?;
+        println!("[DEBUG] 请求数据长度: {} 字节", request_data.len());
+        
+        let send_result = timeout(
+            self.config.timeout,
+            socket.send_to(&request_data, &server_addr)
+        ).await;
+        
+        match send_result {
+            Ok(Ok(_)) => {},
+            Ok(Err(e)) => {
+                let error_msg = if cfg!(windows) {
+                    format!("Windows UDP send failed: {} (server: {})", e, server_addr)
+                } else {
+                    format!("UDP send failed: {} (server: {})", e, server_addr)
+                };
+                return Err(DnsError::Network(error_msg));
+            },
+            Err(_) => return Err(DnsError::Timeout),
+        }
+        
+        let mut buffer = [0u8; 512];
+        let recv_result = timeout(
+            self.config.timeout,
+            socket.recv(&mut buffer)
+        ).await;
+        
+        let len = match recv_result {
+            Ok(Ok(len)) => len,
+            Ok(Err(e)) => {
+                let error_msg = if cfg!(windows) {
+                    format!("Windows UDP recv failed: {}", e)
+                } else {
+                    format!("UDP recv failed: {}", e)
+                };
+                return Err(DnsError::Network(error_msg));
+            },
+            Err(_) => return Err(DnsError::Timeout),
+        };
+        
+        println!("[DEBUG] 收到DNS响应，长度: {} 字节", len);
+        
+        // 打印响应数据的十六进制内容用于调试
+        let preview_len = len.min(64);
+        let hex_preview: String = buffer[..preview_len].iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(" ");
+        println!("[DEBUG] 响应数据预览 (前{}字节): {}", preview_len, hex_preview);
+        
+        let result = Self::deserialize_response(&buffer[..len]);
+        match &result {
+            Ok(response) => {
+                println!("[DEBUG] DNS响应解析成功，包含 {} 个回答记录", response.answers.len());
+            },
+            Err(e) => {
+                println!("[DEBUG] DNS响应解析失败: {}", e);
+            }
+        }
+        
+        result
+    }
+    
+    fn transport_type(&self) -> &'static str {
+        "UDP"
+    }
+    
+    fn set_timeout(&mut self, timeout: Duration) {
+        self.config.timeout = timeout;
+    }
+    
+    fn timeout(&self) -> Duration {
+        self.config.timeout
+    }
+}
