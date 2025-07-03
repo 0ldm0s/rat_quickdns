@@ -1,0 +1,28 @@
+[package]
+name = "rat-quickdns-py"
+version = "0.1.0"
+edition = "2021"
+authors = ["0ldm0s <oldmos@gmail.com>"]
+description = "Python bindings for rat_quickdns - A fast, reliable DNS resolver library"
+license = "MIT"
+repository = "https://github.com/0ldm0s/rat_quickdns"
+keywords = ["dns", "resolver", "async", "python", "networking"]
+categories = ["network-programming", "api-bindings"]
+readme = "README.md"
+
+[lib]
+name = "rat_quickdns_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+# 引用父项目
+rat_quickdns = { path = "..", features = ["python-bindings"] }
+
+# PyO3依赖
+pyo3 = { version = "0.20", features = ["extension-module"] }
+
+# Tokio运行时
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+pyo3-build-config = "0.20"

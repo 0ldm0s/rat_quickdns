@@ -1,0 +1,41 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rat-quickdns-py"
+version = "0.1.0"
+description = "Python bindings for rat_quickdns - A high-performance DNS client library"
+authors = [{name = "0ldm0s", email = "oldmos@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Internet :: Name Service (DNS)",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["dns", "networking", "async", "performance"]
+
+[project.urls]
+Homepage = "https://github.com/0ldm0s/rat_quickdns"
+Repository = "https://github.com/0ldm0s/rat_quickdns"
+Documentation = "https://github.com/0ldm0s/rat_quickdns/blob/main/README.md"
+
+[tool.maturin]
+module-name = "rat_quickdns_py"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
