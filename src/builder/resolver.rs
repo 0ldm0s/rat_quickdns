@@ -148,6 +148,21 @@ impl EasyDnsResolver {
         let start_time = Instant::now();
         let query_id = request.query_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
         
+        // 通用应急检查：在执行任何策略前检查是否所有服务器都失败
+        if let Some(emergency_error) = self.check_emergency_status().await {
+            let duration = start_time.elapsed();
+            return Ok(DnsQueryResponse {
+                query_id,
+                domain: request.domain,
+                record_type: request.record_type,
+                success: false,
+                error: Some(emergency_error),
+                records: Vec::new(),
+                duration_ms: duration.as_millis() as u64,
+                server_used: None,
+            });
+        }
+        
         // 根据策略选择上游服务器
         let result = match self.query_strategy {
             QueryStrategy::Fifo => self.query_fifo(&request).await,
@@ -176,12 +191,15 @@ impl EasyDnsResolver {
                 })
             },
             Err(e) => {
+                // 通用错误处理：在查询失败后再次检查应急状态
+                let enhanced_error = self.enhance_error_with_emergency_info(e).await;
+                
                 Ok(DnsQueryResponse {
                     query_id,
                     domain: request.domain,
                     record_type: request.record_type,
                     success: false,
-                    error: Some(e.to_string()),
+                    error: Some(enhanced_error),
                     records: Vec::new(),
                     duration_ms: duration.as_millis() as u64,
                     server_used: None,
@@ -192,48 +210,56 @@ impl EasyDnsResolver {
     
     /// FIFO查询策略
     async fn query_fifo(&self, request: &DnsQueryRequest) -> Result<(crate::Response, String)> {
-        // 转换记录类型
-        let record_type = match request.record_type {
-            DnsRecordType::A => crate::types::RecordType::A,
-            DnsRecordType::AAAA => crate::types::RecordType::AAAA,
-            DnsRecordType::CNAME => crate::types::RecordType::CNAME,
-            DnsRecordType::MX => crate::types::RecordType::MX,
-            DnsRecordType::TXT => crate::types::RecordType::TXT,
-            DnsRecordType::NS => crate::types::RecordType::NS,
-            DnsRecordType::PTR => crate::types::RecordType::PTR,
-            DnsRecordType::SRV => crate::types::RecordType::SRV,
-            DnsRecordType::SOA => crate::types::RecordType::SOA,
-        };
+        let record_type = self.convert_record_type(request.record_type);
         
-        // 使用底层解析器执行查询
-        let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
-        
-        // 返回响应和使用的服务器信息
-        Ok((response, "fifo-upstream".to_string()))
+        if let Some(engine) = &self.decision_engine {
+            // 使用决策引擎按FIFO顺序选择服务器
+            if let Some(spec) = engine.select_fifo_upstream().await {
+                let start_time = Instant::now();
+                
+                match self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await {
+                    Ok(response) => {
+                        let duration = start_time.elapsed();
+                        engine.update_metrics(&spec.name, duration, true, true).await;
+                        Ok((response, spec.name))
+                    },
+                    Err(e) => {
+                        let duration = start_time.elapsed();
+                        engine.update_metrics(&spec.name, duration, false, false).await;
+                        Err(e)
+                    }
+                }
+            } else {
+                Err(DnsError::NoUpstreamAvailable)
+            }
+        } else {
+            // 没有决策引擎，使用基础解析器
+            let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
+            Ok((response, "fifo-fallback".to_string()))
+        }
     }
     
     /// 智能查询策略
     async fn query_smart(&self, request: &DnsQueryRequest) -> Result<(crate::Response, String)> {
+        let record_type = self.convert_record_type(request.record_type);
+        
         if let Some(engine) = &self.decision_engine {
-            if let Some(spec) = engine.select_best_upstream().await {
-                // 转换记录类型
-                let record_type = match request.record_type {
-                    DnsRecordType::A => crate::types::RecordType::A,
-                    DnsRecordType::AAAA => crate::types::RecordType::AAAA,
-                    DnsRecordType::CNAME => crate::types::RecordType::CNAME,
-                    DnsRecordType::MX => crate::types::RecordType::MX,
-                    DnsRecordType::TXT => crate::types::RecordType::TXT,
-                    DnsRecordType::NS => crate::types::RecordType::NS,
-                    DnsRecordType::PTR => crate::types::RecordType::PTR,
-                    DnsRecordType::SRV => crate::types::RecordType::SRV,
-                    DnsRecordType::SOA => crate::types::RecordType::SOA,
-                };
+            // 使用决策引擎选择最优服务器
+            if let Some(spec) = engine.select_smart_upstream().await {
+                let start_time = Instant::now();
                 
-                // 使用底层解析器执行查询
-                let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
-                
-                // 返回响应和使用的服务器信息
-                Ok((response, spec.name))
+                match self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await {
+                    Ok(response) => {
+                        let duration = start_time.elapsed();
+                        engine.update_metrics(&spec.name, duration, true, true).await;
+                        Ok((response, spec.name))
+                    },
+                    Err(e) => {
+                        let duration = start_time.elapsed();
+                        engine.update_metrics(&spec.name, duration, false, false).await;
+                        Err(e)
+                    }
+                }
             } else {
                 Err(DnsError::NoUpstreamAvailable)
             }
@@ -242,10 +268,9 @@ impl EasyDnsResolver {
         }
     }
     
-    /// 轮询查询策略
-    async fn query_round_robin(&self, request: &DnsQueryRequest) -> Result<(crate::Response, String)> {
-        // 转换记录类型
-        let record_type = match request.record_type {
+    /// 转换记录类型
+    fn convert_record_type(&self, record_type: DnsRecordType) -> crate::types::RecordType {
+        match record_type {
             DnsRecordType::A => crate::types::RecordType::A,
             DnsRecordType::AAAA => crate::types::RecordType::AAAA,
             DnsRecordType::CNAME => crate::types::RecordType::CNAME,
@@ -255,13 +280,60 @@ impl EasyDnsResolver {
             DnsRecordType::PTR => crate::types::RecordType::PTR,
             DnsRecordType::SRV => crate::types::RecordType::SRV,
             DnsRecordType::SOA => crate::types::RecordType::SOA,
-        };
+        }
+    }
+    
+    /// 轮询查询策略（优化版本）
+    async fn query_round_robin(&self, request: &DnsQueryRequest) -> Result<(crate::Response, String)> {
+        let record_type = self.convert_record_type(request.record_type);
         
-        // 使用底层解析器执行查询
-        let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
-        
-        // 返回响应和使用的服务器信息
-        Ok((response, "round-robin-upstream".to_string()))
+        if let Some(engine) = &self.decision_engine {
+            let mut last_error = None;
+            let mut attempted_servers = Vec::new();
+            
+            // 最多尝试3次不同的服务器
+            for attempt in 0..3 {
+                if let Some(spec) = engine.select_round_robin_upstream().await {
+                    attempted_servers.push(spec.name.clone());
+                    let start_time = Instant::now();
+                    
+                    match self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await {
+                        Ok(response) => {
+                            let duration = start_time.elapsed();
+                            engine.update_metrics(&spec.name, duration, true, true).await;
+                            return Ok((response, spec.name));
+                        },
+                        Err(e) => {
+                            let duration = start_time.elapsed();
+                            engine.update_metrics(&spec.name, duration, false, false).await;
+                            last_error = Some(e);
+                            
+                            // 短暂延迟后重试下一个服务器
+                            if attempt < 2 {
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            }
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+            
+            // 如果所有尝试都失败了，返回详细的错误信息
+            if let Some(error) = last_error {
+                Err(DnsError::Server(format!(
+                    "Round-robin查询失败，已尝试服务器: [{}]，最后错误: {}",
+                    attempted_servers.join(", "),
+                    error
+                )))
+            } else {
+                Err(DnsError::NoUpstreamAvailable)
+            }
+        } else {
+            // 没有决策引擎，使用基础解析器
+            let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
+            Ok((response, "round-robin-fallback".to_string()))
+        }
     }
     
 
@@ -389,6 +461,62 @@ impl EasyDnsResolver {
         self.enable_edns
     }
     
+    /// 获取决策引擎引用
+    pub fn get_decision_engine(&self) -> Option<&Arc<SmartDecisionEngine>> {
+        self.decision_engine.as_ref()
+    }
+    
+    /// 通用应急状态检查
+    /// 
+    /// 检查是否所有上游服务器都失败，如果是则返回应急错误信息
+    async fn check_emergency_status(&self) -> Option<String> {
+        if let Some(engine) = &self.decision_engine {
+            if engine.all_upstreams_failed().await {
+                let emergency_info = engine.get_emergency_response_info().await;
+                return Some(format!(
+                    "🚨 应急模式激活: {} (策略: {:?})",
+                    emergency_info.emergency_message,
+                    self.query_strategy
+                ));
+            }
+        }
+        None
+    }
+    
+    /// 增强错误信息，添加应急响应详情
+    /// 
+    /// 在查询失败后，检查应急状态并增强错误信息
+    async fn enhance_error_with_emergency_info(&self, original_error: DnsError) -> String {
+        if let Some(engine) = &self.decision_engine {
+            let emergency_info = engine.get_emergency_response_info().await;
+            
+            if emergency_info.all_servers_failed {
+                format!(
+                    "查询失败 (策略: {:?}): {}\n🚨 应急信息: {}\n📊 失败统计: {}次\n📋 失败服务器: [{}]",
+                    self.query_strategy,
+                    original_error,
+                    emergency_info.emergency_message,
+                    emergency_info.total_failures,
+                    emergency_info.failed_servers.iter()
+                        .map(|s| format!("{} ({}次)", s.name, s.consecutive_failures))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            } else if emergency_info.total_failures > 0 {
+                format!(
+                    "查询失败 (策略: {:?}): {}\n⚠️  部分服务器不可用: {}次失败",
+                    self.query_strategy,
+                    original_error,
+                    emergency_info.total_failures
+                )
+            } else {
+                format!("查询失败 (策略: {:?}): {}", self.query_strategy, original_error)
+            }
+        } else {
+            format!("查询失败 (策略: {:?}, 无决策引擎): {}", self.query_strategy, original_error)
+        }
+    }
+    
     /// 获取上游管理器引用
     pub fn upstream_manager(&self) -> &UpstreamManager {
         &self.upstream_manager
@@ -397,6 +525,36 @@ impl EasyDnsResolver {
     /// 获取QuickMem配置
     pub fn quickmem_config(&self) -> &QuickMemConfig {
         &self.quickmem_config
+    }
+}
+
+impl Clone for EasyDnsResolver {
+    fn clone(&self) -> Self {
+        // 由于Resolver包含trait对象，我们需要重新创建一个新的实例
+        // 这里我们使用相同的配置来创建新的解析器
+        let config = crate::resolver::ResolverConfig {
+            strategy: crate::resolver::strategy::QueryStrategy::FastestFirst,
+            default_timeout: std::time::Duration::from_secs(5),
+            retry_count: 2,
+            enable_cache: true,
+            max_cache_ttl: std::time::Duration::from_secs(3600),
+            enable_health_check: true,
+            health_check_interval: std::time::Duration::from_secs(30),
+            default_client_subnet: None,
+            port: 53,
+            concurrent_queries: 10,
+            recursion_desired: true,
+            buffer_size: 4096,
+        };
+        
+        Self::new(
+            config,
+            self.upstream_manager.clone(),
+            self.quickmem_config.clone(),
+            self.decision_engine.clone(),
+            self.query_strategy,
+            self.enable_edns,
+        ).expect("Failed to clone EasyDnsResolver")
     }
 }
 

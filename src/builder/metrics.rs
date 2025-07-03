@@ -25,6 +25,9 @@ pub struct PerformanceMetrics {
     /// 最后成功时间
     pub last_success_time: Option<Instant>,
     
+    /// 最后失败时间
+    pub last_failure_time: Option<Instant>,
+    
     /// CDN准确性评分 (0.0-1.0)
     pub cdn_accuracy_score: f64,
 }
@@ -38,6 +41,7 @@ impl Default for PerformanceMetrics {
             consecutive_failures: 0,
             avg_latency: Duration::from_millis(100), // 默认100ms
             last_success_time: None,
+            last_failure_time: None,
             cdn_accuracy_score: 0.8, // 默认80%准确率
         }
     }
@@ -109,6 +113,7 @@ impl PerformanceMetrics {
         self.total_queries += 1;
         self.failed_queries += 1;
         self.consecutive_failures += 1;
+        self.last_failure_time = Some(Instant::now());
     }
     
     /// 重置指标

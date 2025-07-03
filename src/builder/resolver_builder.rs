@@ -16,7 +16,7 @@ use super::{
 };
 
 /// DNS解析器构建器
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DnsResolverBuilder {
     /// 解析器配置
     config: ResolverConfig,
@@ -148,6 +148,28 @@ impl DnsResolverBuilder {
     /// 设置查询超时时间
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.config.default_timeout = timeout;
+        self
+    }
+    
+    /// 为ROUND_ROBIN策略设置优化的超时时间
+    /// 轮询策略使用更短的超时时间以避免客户端等待过久
+    pub fn with_round_robin_timeout(mut self, timeout: Duration) -> Self {
+        if matches!(self.query_strategy, QueryStrategy::RoundRobin) {
+            // 轮询策略使用更短的超时，最大不超过2秒
+            self.config.default_timeout = timeout.min(Duration::from_secs(2));
+        }
+        self
+    }
+    
+    /// 为ROUND_ROBIN策略应用性能优化配置
+    /// 包括：降低超时时间、启用健康检查、增加并发数
+    pub fn optimize_for_round_robin(mut self) -> Self {
+        if matches!(self.query_strategy, QueryStrategy::RoundRobin) {
+            self.config.default_timeout = Duration::from_millis(1500); // 1.5秒超时
+            self.config.enable_health_check = true; // 启用健康检查
+            self.config.retry_count = 1; // 减少重试次数，快速失败
+            self.config.concurrent_queries = self.config.concurrent_queries.max(4); // 至少4个并发
+        }
         self
     }
     

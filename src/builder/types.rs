@@ -97,6 +97,64 @@ pub struct DnsQueryResponse {
     pub server_used: Option<String>,
 }
 
+impl DnsQueryResponse {
+    /// 提取IP地址列表
+    pub fn ip_addresses(&self) -> Vec<IpAddr> {
+        self.records
+            .iter()
+            .filter_map(|record| {
+                if let DnsRecordValue::IpAddr(ip) = &record.value {
+                    Some(*ip)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    
+    /// 提取域名列表（用于CNAME等记录）
+    pub fn domains(&self) -> Vec<String> {
+        self.records
+            .iter()
+            .filter_map(|record| {
+                if let DnsRecordValue::Domain(domain) = &record.value {
+                    Some(domain.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    
+    /// 提取文本列表（用于TXT记录）
+    pub fn texts(&self) -> Vec<String> {
+        self.records
+            .iter()
+            .filter_map(|record| {
+                if let DnsRecordValue::Text(text) = &record.value {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    
+    /// 提取MX记录
+    pub fn mx_records(&self) -> Vec<(u16, String)> {
+        self.records
+            .iter()
+            .filter_map(|record| {
+                if let DnsRecordValue::Mx { priority, exchange } = &record.value {
+                    Some((*priority, exchange.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 /// DNS记录类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DnsRecordType {
