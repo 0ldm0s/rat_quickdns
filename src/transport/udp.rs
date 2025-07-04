@@ -323,8 +323,50 @@ impl UdpTransport {
                 Self::encode_name(target, &mut buffer)?;
                 Ok(buffer)
             },
-            RecordData::Unknown { data, .. } => Ok(data.clone()),
+            RecordData::Unknown(data) => Ok(data.clone()),
         }
+    }
+    
+    /// 反序列化DNS请求
+    pub fn deserialize_request(data: &[u8]) -> Result<Request> {
+        if data.len() < 12 {
+            return Err(DnsError::Protocol("Request too short".to_string()));
+        }
+        
+        let id = u16::from_be_bytes([data[0], data[1]]);
+        let flags_raw = u16::from_be_bytes([data[2], data[3]]);
+        
+        let flags = crate::types::Flags {
+            qr: (flags_raw & 0x8000) != 0,
+            opcode: ((flags_raw >> 11) & 0x0F) as u8,
+            aa: (flags_raw & 0x0400) != 0,
+            tc: (flags_raw & 0x0200) != 0,
+            rd: (flags_raw & 0x0100) != 0,
+            ra: (flags_raw & 0x0080) != 0,
+            z: ((flags_raw >> 4) & 0x07) as u8,
+            rcode: (flags_raw & 0x0F) as u8,
+        };
+        
+        let qdcount = u16::from_be_bytes([data[4], data[5]]);
+        
+        if qdcount != 1 {
+            return Err(DnsError::Protocol("Request must have exactly one query".to_string()));
+        }
+        
+        let mut offset = 12;
+        
+        // 解析查询部分
+        let (query, _) = Self::parse_query(data, offset)?;
+        
+        // 检查是否有EDNS记录
+        let client_subnet = None; // 简化处理，暂不解析EDNS
+        
+        Ok(Request {
+            id,
+            flags,
+            query,
+            client_subnet,
+        })
     }
     
     /// 反序列化DNS响应
