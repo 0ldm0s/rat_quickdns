@@ -48,6 +48,8 @@ impl EasyDnsResolver {
         query_strategy: QueryStrategy,
         enable_edns: bool,
     ) -> Result<Self> {
+        // 提取需要的配置值，避免所有权问题
+        let default_timeout = config.default_timeout;
         let mut resolver = Resolver::new(config);
         
         // 根据上游管理器配置添加传输协议
@@ -65,7 +67,7 @@ impl EasyDnsResolver {
                     let transport_config = crate::transport::TransportConfig {
                         server,
                         port,
-                        timeout: std::time::Duration::from_secs(5),
+                        timeout: default_timeout,
                         tcp_fast_open: false,
                         tcp_nodelay: true,
                         pool_size: 10,
@@ -84,7 +86,7 @@ impl EasyDnsResolver {
                     let transport_config = crate::transport::TransportConfig {
                         server,
                         port,
-                        timeout: std::time::Duration::from_secs(5),
+                        timeout: default_timeout,
                         tcp_fast_open: false,
                         tcp_nodelay: true,
                         pool_size: 10,
@@ -96,7 +98,7 @@ impl EasyDnsResolver {
                         base: crate::transport::TransportConfig {
                             server: "cloudflare-dns.com".to_string(),
                             port: 443,
-                            timeout: std::time::Duration::from_secs(10),
+                            timeout: default_timeout,
                             tcp_fast_open: false,
                             tcp_nodelay: true,
                             pool_size: 5,
@@ -120,7 +122,7 @@ impl EasyDnsResolver {
                         base: crate::transport::TransportConfig {
                             server: server.clone(),
                             port,
-                            timeout: std::time::Duration::from_secs(10),
+                            timeout: default_timeout,
                             tcp_fast_open: false,
                             tcp_nodelay: true,
                             pool_size: 5,

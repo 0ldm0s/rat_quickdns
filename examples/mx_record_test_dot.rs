@@ -135,8 +135,8 @@ async fn test_mx_record_with_dot_server(
     
     let resolver = DnsResolverBuilder::new()
         .query_strategy(QueryStrategy::Smart)
-        .with_timeout(Duration::from_secs(15)) // DoT可能需要更长时间
-        .with_retry_count(2)
+        .with_timeout(Duration::from_secs(3)) // 快速失败，避免长时间等待
+        .with_retry_count(1) // 减少重试次数以加快失败检测
         .add_dot_upstream(format!("{}-{}", server.name, server.region), format!("{}:{}", server.address, server.port))
         .build()
         .await
