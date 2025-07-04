@@ -9,6 +9,7 @@ use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use std::sync::{Arc, Mutex};
+use crate::{dns_debug, dns_info, dns_error, dns_transport};
 
 #[cfg(feature = "tokio-rustls")]
 use tokio_rustls::{TlsConnector, rustls::{ClientConfig, ServerName}};
@@ -70,7 +71,7 @@ impl TlsTransport {
             Ok(certs) => {
                 for cert in certs {
                     if let Err(e) = root_store.add(&tokio_rustls::rustls::Certificate(cert.0)) {
-                        eprintln!("Warning: Failed to add certificate: {:?}", e);
+                        dns_error!("Failed to add certificate: {:?}", e);
                     }
                 }
             }

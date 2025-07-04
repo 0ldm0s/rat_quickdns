@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
+use crate::{dns_debug, dns_info, dns_error, dns_transport};
 
 /// TCP传输实现
 #[derive(Debug)]
@@ -86,7 +87,7 @@ impl Transport for TcpTransport {
         if self.config.tcp_nodelay {
             if let Err(e) = stream.set_nodelay(true) {
                 // 记录警告但不失败
-                eprintln!("Warning: Failed to set TCP_NODELAY: {}", e);
+                dns_error!("Failed to set TCP_NODELAY: {}", e);
             }
         }
         

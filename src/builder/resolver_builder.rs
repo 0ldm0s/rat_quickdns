@@ -227,10 +227,47 @@ impl DnsResolverBuilder {
         self
     }
     
+    /// 设置日志级别
+    pub fn with_log_level(mut self, level: zerg_creep::logger::LevelFilter) -> Self {
+        self.config.log_level = level;
+        self
+    }
+    
+    /// 启用/禁用DNS专用日志格式
+    pub fn with_dns_log_format(mut self, enable: bool) -> Self {
+        self.config.enable_dns_log_format = enable;
+        self
+    }
+    
+    /// 设置详细日志（Debug级别）
+    pub fn with_verbose_logging(mut self) -> Self {
+        self.config.log_level = zerg_creep::logger::LevelFilter::Debug;
+        self.config.enable_dns_log_format = true;
+        self
+    }
+    
+    /// 设置静默日志（Error级别）
+    pub fn with_quiet_logging(mut self) -> Self {
+        self.config.log_level = zerg_creep::logger::LevelFilter::Error;
+        self
+    }
+    
     /// 构建解析器
     pub async fn build(self) -> Result<EasyDnsResolver> {
         if self.upstream_manager.get_specs().is_empty() {
             return Err(DnsError::InvalidConfig("No upstream servers configured".to_string()));
+        }
+        
+        // 初始化日志系统 - 默认禁用日志输出
+        if self.config.log_level == zerg_creep::logger::LevelFilter::Off {
+            // 默认情况：禁用日志输出
+            let _ = crate::logger::init_dns_logger_silent();
+        } else if self.config.enable_dns_log_format {
+            // 用户显式启用了DNS格式日志
+            let _ = crate::logger::init_dns_logger(self.config.log_level);
+        } else {
+            // 用户设置了日志级别但不使用DNS格式
+            let _ = crate::logger::init_dns_logger(self.config.log_level);
         }
         
         // 验证上游服务器配置

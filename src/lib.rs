@@ -13,6 +13,7 @@ pub mod error;
 pub mod builder;
 pub mod upstream_handler;
 pub mod dns_response;
+pub mod logger;
 
 #[cfg(feature = "python-bindings")]
 pub mod python_api;
@@ -27,6 +28,10 @@ pub use builder::{
 };
 pub use builder::resolver::{ResolverStats, UpstreamHealth};
 pub use dns_response::{DnsResponseBuilder, DnsResponseWrapper};
+pub use logger::{init_dns_logger, init_dns_logger_silent, dns_format};
+
+// 重新导出zerg_creep基础日志宏到crate根部，供DNS宏使用
+pub use zerg_creep::{error, warn, info, debug, trace};
 
 // 重新导出rat_quickmem的核心功能
 pub use rat_quickmem::{encode, decode, QuickMemConfig};

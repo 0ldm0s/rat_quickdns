@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use std::net::IpAddr;
 use tokio::time::timeout;
 use std::collections::HashMap;
+use crate::{dns_debug, dns_info, dns_error, dns_transport};
 
 pub mod strategy;
 pub mod cache;
@@ -66,6 +67,10 @@ pub struct ResolverConfig {
     pub recursion_desired: bool,
     /// 查询缓冲区大小
     pub buffer_size: usize,
+    /// 日志级别
+    pub log_level: zerg_creep::logger::LevelFilter,
+    /// 是否启用DNS专用日志格式
+    pub enable_dns_log_format: bool,
 }
 
 impl Default for ResolverConfig {
@@ -83,6 +88,8 @@ impl Default for ResolverConfig {
             concurrent_queries: 10,
             recursion_desired: true,
             buffer_size: 4096,
+            log_level: zerg_creep::logger::LevelFilter::Off,
+            enable_dns_log_format: true,
         }
     }
 }
@@ -120,11 +127,11 @@ impl Resolver {
     
     /// 添加UDP传输
     pub fn add_udp_transport(&mut self, config: TransportConfig) {
-        println!("[DEBUG] 添加UDP传输: {}:{}", config.server, config.port);
+        dns_transport!("添加UDP传输: {}:{}", config.server, config.port);
         let transport = Arc::new(UdpTransport::new(config));
         self.transports.push(transport.clone());
-        println!("[DEBUG] UDP传输已添加，当前传输总数: {}", self.transports.len());
-        println!("[DEBUG] 新添加的传输类型: {}", transport.transport_type());
+        dns_info!("UDP传输已添加，当前传输总数: {}", self.transports.len());
+        dns_debug!("新添加的传输类型: {}", transport.transport_type());
     }
     
     /// 添加TCP传输
@@ -300,7 +307,7 @@ impl Resolver {
                     // 取消信号
                     _ = cancel_rx.recv() => {
                         // 任务被取消，直接退出
-                        println!("[DEBUG] 传输 {} 的查询任务被取消", transport_clone.transport_type());
+                        dns_debug!("传输 {} 的查询任务被取消", transport_clone.transport_type());
                     }
                 }
             });
@@ -530,30 +537,30 @@ impl Resolver {
     
     /// 获取健康的传输实例
     fn get_healthy_transports(&self) -> Vec<Arc<dyn Transport + Send + Sync + 'static>> {
-        println!("[DEBUG] 开始获取健康的传输实例");
-        println!("[DEBUG] 总传输数量: {}", self.transports.len());
+        dns_debug!("开始获取健康的传输实例");
+        dns_debug!("总传输数量: {}", self.transports.len());
         
         for (i, transport) in self.transports.iter().enumerate() {
-            println!("[DEBUG] 传输 {}: 类型={}", i, transport.transport_type());
+            dns_debug!("传输 {}: 类型={}", i, transport.transport_type());
         }
         
         if let Some(health_checker) = &self.health_checker {
-            println!("[DEBUG] 使用健康检查器过滤传输");
+            dns_debug!("使用健康检查器过滤传输");
             let healthy_transports: Vec<_> = self.transports
                 .iter()
                 .enumerate()
                 .filter(|(i, t)| {
                     let is_healthy = health_checker.is_transport_healthy(t.transport_type());
-                    println!("[DEBUG] 传输 {} ({}): 健康状态={}", i, t.transport_type(), is_healthy);
+                    dns_debug!("传输 {} ({}): 健康状态={}", i, t.transport_type(), is_healthy);
                     is_healthy
                 })
                 .map(|(_, t)| t.clone())
                 .collect();
             
-            println!("[DEBUG] 健康传输数量: {}", healthy_transports.len());
+            dns_debug!("健康传输数量: {}", healthy_transports.len());
             healthy_transports
         } else {
-            println!("[DEBUG] 未启用健康检查，返回所有传输");
+            dns_debug!("未启用健康检查，返回所有传输");
             self.transports.clone()
         }
     }

@@ -28,6 +28,9 @@ pub struct DnsQueryRequest {
     
     /// 是否禁用缓存
     pub disable_cache: bool,
+    
+    /// 是否启用DNSSEC验证
+    pub enable_dnssec: bool,
 }
 
 impl DnsQueryRequest {
@@ -41,6 +44,7 @@ impl DnsQueryRequest {
             client_subnet: None,
             timeout_ms: None,
             disable_cache: false,
+            enable_dnssec: false,
         }
     }
     
@@ -65,6 +69,12 @@ impl DnsQueryRequest {
     /// 禁用缓存
     pub fn disable_cache(mut self) -> Self {
         self.disable_cache = true;
+        self
+    }
+    
+    /// 启用DNSSEC验证
+    pub fn with_dnssec(mut self, enable: bool) -> Self {
+        self.enable_dnssec = enable;
         self
     }
 }
@@ -95,6 +105,12 @@ pub struct DnsQueryResponse {
     
     /// 使用的上游服务器
     pub server_used: Option<String>,
+    
+    /// DNSSEC验证状态
+    pub dnssec_status: Option<DnssecStatus>,
+    
+    /// DNSSEC相关记录（RRSIG、DNSKEY等）
+    pub dnssec_records: Vec<DnsRecord>,
 }
 
 impl DnsQueryResponse {
@@ -153,10 +169,67 @@ impl DnsQueryResponse {
             })
             .collect()
     }
+    
+    /// 检查是否有DNSSEC记录
+    pub fn has_dnssec_records(&self) -> bool {
+        !self.dnssec_records.is_empty() || 
+        self.records.iter().any(|r| r.record_type.is_dnssec_record())
+    }
+    
+    /// 获取DNSSEC状态描述
+    pub fn dnssec_status_description(&self) -> String {
+        match &self.dnssec_status {
+            Some(DnssecStatus::Secure) => "🔒 DNSSEC验证通过".to_string(),
+            Some(DnssecStatus::Insecure) => "🔓 未启用DNSSEC".to_string(),
+            Some(DnssecStatus::Bogus) => "⚠️ DNSSEC验证失败".to_string(),
+            Some(DnssecStatus::Indeterminate) => "❓ DNSSEC状态不确定".to_string(),
+            None => "➖ 无DNSSEC信息".to_string(),
+        }
+    }
+    
+    /// 提取DNSSEC相关记录
+    pub fn dnssec_record_summary(&self) -> String {
+        let dnssec_records: Vec<_> = self.records.iter()
+            .filter(|r| r.record_type.is_dnssec_record())
+            .collect();
+        
+        if dnssec_records.is_empty() {
+            "无DNSSEC记录".to_string()
+        } else {
+            let mut summary = Vec::new();
+            let mut counts = std::collections::HashMap::new();
+            
+            for record in &dnssec_records {
+                *counts.entry(record.record_type).or_insert(0) += 1;
+            }
+            
+            for (record_type, count) in counts {
+                summary.push(format!("{}: {}", record_type.as_str(), count));
+            }
+            
+            summary.join(", ")
+        }
+    }
+}
+
+/// DNSSEC验证状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DnssecStatus {
+    /// 安全 - DNSSEC验证通过
+    Secure,
+    
+    /// 不安全 - 域名未启用DNSSEC
+    Insecure,
+    
+    /// 伪造 - DNSSEC验证失败
+    Bogus,
+    
+    /// 不确定 - 无法验证DNSSEC状态
+    Indeterminate,
 }
 
 /// DNS记录类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DnsRecordType {
     /// A记录 - IPv4地址
     A,
@@ -184,6 +257,22 @@ pub enum DnsRecordType {
     
     /// SOA记录 - 授权开始
     SOA,
+    
+    /// DNSSEC相关记录类型
+    /// RRSIG记录 - 资源记录签名
+    RRSIG,
+    
+    /// DNSKEY记录 - DNS公钥
+    DNSKEY,
+    
+    /// DS记录 - 委托签名者
+    DS,
+    
+    /// NSEC记录 - 下一个安全记录
+    NSEC,
+    
+    /// NSEC3记录 - 下一个安全记录版本3
+    NSEC3,
 }
 
 impl DnsRecordType {
@@ -199,6 +288,11 @@ impl DnsRecordType {
             Self::PTR => "PTR",
             Self::SRV => "SRV",
             Self::SOA => "SOA",
+            Self::RRSIG => "RRSIG",
+            Self::DNSKEY => "DNSKEY",
+            Self::DS => "DS",
+            Self::NSEC => "NSEC",
+            Self::NSEC3 => "NSEC3",
         }
     }
     
@@ -214,8 +308,18 @@ impl DnsRecordType {
             "PTR" => Some(Self::PTR),
             "SRV" => Some(Self::SRV),
             "SOA" => Some(Self::SOA),
+            "RRSIG" => Some(Self::RRSIG),
+            "DNSKEY" => Some(Self::DNSKEY),
+            "DS" => Some(Self::DS),
+            "NSEC" => Some(Self::NSEC),
+            "NSEC3" => Some(Self::NSEC3),
             _ => None,
         }
+    }
+    
+    /// 检查是否为DNSSEC相关记录类型
+    pub fn is_dnssec_record(&self) -> bool {
+        matches!(self, Self::RRSIG | Self::DNSKEY | Self::DS | Self::NSEC | Self::NSEC3)
     }
 }
 

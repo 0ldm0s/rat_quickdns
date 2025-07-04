@@ -160,6 +160,8 @@ impl EasyDnsResolver {
                 records: Vec::new(),
                 duration_ms: duration.as_millis() as u64,
                 server_used: None,
+                dnssec_status: Some(crate::builder::types::DnssecStatus::Indeterminate),
+                dnssec_records: Vec::new(),
             });
         }
         
@@ -188,6 +190,8 @@ impl EasyDnsResolver {
                     records: self.convert_response_to_records(response),
                     duration_ms: duration.as_millis() as u64,
                     server_used: Some(server_used),
+                    dnssec_status: Some(crate::builder::types::DnssecStatus::Indeterminate),
+                    dnssec_records: Vec::new(),
                 })
             },
             Err(e) => {
@@ -203,6 +207,8 @@ impl EasyDnsResolver {
                     records: Vec::new(),
                     duration_ms: duration.as_millis() as u64,
                     server_used: None,
+                    dnssec_status: Some(crate::builder::types::DnssecStatus::Indeterminate),
+                    dnssec_records: Vec::new(),
                 })
             }
         }
@@ -280,6 +286,12 @@ impl EasyDnsResolver {
             DnsRecordType::PTR => crate::types::RecordType::PTR,
             DnsRecordType::SRV => crate::types::RecordType::SRV,
             DnsRecordType::SOA => crate::types::RecordType::SOA,
+            // DNSSEC记录类型映射到Unknown类型，使用标准的DNSSEC记录类型代码
+            DnsRecordType::RRSIG => crate::types::RecordType::Unknown(46),  // RRSIG
+            DnsRecordType::DNSKEY => crate::types::RecordType::Unknown(48), // DNSKEY
+            DnsRecordType::DS => crate::types::RecordType::Unknown(43),     // DS
+            DnsRecordType::NSEC => crate::types::RecordType::Unknown(47),   // NSEC
+            DnsRecordType::NSEC3 => crate::types::RecordType::Unknown(50),  // NSEC3
         }
     }
     
@@ -545,6 +557,8 @@ impl Clone for EasyDnsResolver {
             concurrent_queries: 10,
             recursion_desired: true,
             buffer_size: 4096,
+            log_level: zerg_creep::logger::LevelFilter::Info,
+            enable_dns_log_format: true,
         };
         
         Self::new(

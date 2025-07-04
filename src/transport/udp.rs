@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
+use crate::{dns_debug, dns_info, dns_error, dns_transport};
 
 /// UDP传输实现
 #[derive(Debug)]
@@ -30,7 +31,7 @@ impl UdpTransport {
     async fn create_windows_socket(&self) -> Result<UdpSocket> {
         use std::net::SocketAddr;
         
-        println!("[DEBUG] Windows平台：开始创建UDP socket");
+        dns_transport!("Windows平台：开始创建UDP socket");
         
         // Windows平台尝试多种绑定策略
         let bind_addresses = [
@@ -42,15 +43,15 @@ impl UdpTransport {
         let mut last_error = None;
         
         for addr in &bind_addresses {
-            println!("[DEBUG] 尝试绑定地址: {}", addr);
+            dns_debug!("尝试绑定地址: {}", addr);
             match UdpSocket::bind(addr).await {
                 Ok(socket) => {
-                    println!("[DEBUG] 成功绑定到地址: {}", addr);
+                    dns_info!("成功绑定到地址: {}", addr);
                     // 成功绑定，返回socket
                     return Ok(socket);
                 }
                 Err(e) => {
-                    println!("[DEBUG] 绑定失败 {}: {}", addr, e);
+                    dns_debug!("绑定失败 {}: {}", addr, e);
                     last_error = Some(e);
                     // 继续尝试下一个地址
                     continue;
@@ -59,7 +60,7 @@ impl UdpTransport {
         }
         
         // 所有绑定尝试都失败
-        println!("[DEBUG] 所有绑定尝试都失败");
+        dns_error!("所有绑定尝试都失败");
         if let Some(e) = last_error {
             Err(DnsError::Network(format!("Windows UDP socket bind failed: {}", e)))
         } else {
@@ -82,18 +83,18 @@ impl UdpTransport {
     
     /// 序列化DNS请求为字节
     pub fn serialize_request(request: &Request) -> Result<Vec<u8>> {
-        println!("[DEBUG] 开始序列化DNS请求");
-        println!("[DEBUG] 请求ID: {}", request.id);
-        println!("[DEBUG] 查询域名: '{}'", request.query.name);
-        println!("[DEBUG] 查询类型: {:?}", request.query.qtype);
-        println!("[DEBUG] 客户端子网: {:?}", request.client_subnet);
+        dns_debug!("开始序列化DNS请求");
+        dns_debug!("请求ID: {}", request.id);
+        dns_debug!("查询域名: '{}'", request.query.name);
+        dns_debug!("查询类型: {:?}", request.query.qtype);
+        dns_debug!("客户端子网: {:?}", request.client_subnet);
         
         let mut buffer = Vec::with_capacity(512);
         
         // 检查是否需要EDNS记录
         let has_edns = request.client_subnet.is_some();
         let additional_count = if has_edns { 1u16 } else { 0u16 };
-        println!("[DEBUG] 需要EDNS记录: {}, 附加记录数: {}", has_edns, additional_count);
+        dns_debug!("需要EDNS记录: {}, 附加记录数: {}", has_edns, additional_count);
         
         // DNS头部 (12字节)
         buffer.extend_from_slice(&request.id.to_be_bytes());
@@ -109,7 +110,7 @@ impl UdpTransport {
         flags |= (request.flags.z as u16) << 4;
         flags |= request.flags.rcode as u16;
         buffer.extend_from_slice(&flags.to_be_bytes());
-        println!("[DEBUG] DNS头部标志位: 0x{:04X}", flags);
+        dns_debug!("DNS头部标志位: 0x{:04X}", flags);
         
         // 问题计数
         buffer.extend_from_slice(&1u16.to_be_bytes());
@@ -119,26 +120,26 @@ impl UdpTransport {
         buffer.extend_from_slice(&0u16.to_be_bytes());
         // 附加计数
         buffer.extend_from_slice(&additional_count.to_be_bytes());
-        println!("[DEBUG] DNS头部完成，当前缓冲区长度: {} 字节", buffer.len());
+        dns_debug!("DNS头部完成，当前缓冲区长度: {} 字节", buffer.len());
         
         // 查询部分
         let name_start_pos = buffer.len();
         Self::encode_name(&request.query.name, &mut buffer)?;
         let name_end_pos = buffer.len();
-        println!("[DEBUG] 域名编码完成，占用 {} 字节 (位置 {}-{})", name_end_pos - name_start_pos, name_start_pos, name_end_pos);
+        dns_debug!("域名编码完成，占用 {} 字节 (位置 {}-{})", name_end_pos - name_start_pos, name_start_pos, name_end_pos);
         
         buffer.extend_from_slice(&u16::from(request.query.qtype).to_be_bytes());
         buffer.extend_from_slice(&u16::from(request.query.qclass).to_be_bytes());
-        println!("[DEBUG] 查询类型和类别添加完成，当前缓冲区长度: {} 字节", buffer.len());
+        dns_debug!("查询类型和类别添加完成，当前缓冲区长度: {} 字节", buffer.len());
         
         // 添加EDNS记录(如果需要)
         if let Some(ref client_subnet) = request.client_subnet {
-            println!("[DEBUG] 开始添加EDNS记录");
+            dns_debug!("开始添加EDNS记录");
             Self::encode_edns_record(&mut buffer, client_subnet)?;
-            println!("[DEBUG] EDNS记录添加完成，最终缓冲区长度: {} 字节", buffer.len());
+            dns_debug!("EDNS记录添加完成，最终缓冲区长度: {} 字节", buffer.len());
         }
         
-        println!("[DEBUG] DNS请求序列化完成，总长度: {} 字节", buffer.len());
+        dns_debug!("DNS请求序列化完成，总长度: {} 字节", buffer.len());
         
         // 打印前64字节的十六进制内容用于调试
         let preview_len = buffer.len().min(64);
@@ -146,43 +147,43 @@ impl UdpTransport {
             .map(|b| format!("{:02X}", b))
             .collect::<Vec<_>>()
             .join(" ");
-        println!("[DEBUG] 请求数据预览 (前{}字节): {}", preview_len, hex_preview);
+        dns_debug!("请求数据预览 (前{}字节): {}", preview_len, hex_preview);
         
         Ok(buffer)
     }
     
     /// 编码域名
     pub fn encode_name(name: &str, buffer: &mut Vec<u8>) -> Result<()> {
-        println!("[DEBUG] 编码域名: '{}'", name);
+        dns_debug!("编码域名: '{}'", name);
         
         if name.is_empty() || name == "." {
-            println!("[DEBUG] 空域名或根域名，添加终止符");
+            dns_debug!("空域名或根域名，添加终止符");
             buffer.push(0);
             return Ok(());
         }
         
         // 移除末尾的点（如果有）
         let name = name.trim_end_matches('.');
-        println!("[DEBUG] 处理后的域名: '{}'", name);
+        dns_debug!("处理后的域名: '{}'", name);
         
         for (i, label) in name.split('.').enumerate() {
             if label.is_empty() {
-                println!("[DEBUG] 跳过空标签 {}", i);
+                dns_debug!("跳过空标签 {}", i);
                 continue;
             }
             if label.len() > 63 {
-                println!("[DEBUG] 标签 '{}' 长度超过63字节", label);
+                dns_debug!("标签 '{}' 长度超过63字节", label);
                 return Err(DnsError::Protocol("Label too long".to_string()));
             }
-            println!("[DEBUG] 添加标签 {}: '{}' (长度: {})", i, label, label.len());
+            dns_debug!("添加标签 {}: '{}' (长度: {})", i, label, label.len());
             buffer.push(label.len() as u8);
             buffer.extend_from_slice(label.as_bytes());
         }
         
-        println!("[DEBUG] 添加域名终止符");
+        dns_debug!("添加域名终止符");
         buffer.push(0);
         
-        println!("[DEBUG] 域名编码完成，总长度: {} 字节", buffer.len());
+        dns_debug!("域名编码完成，总长度: {} 字节", buffer.len());
         Ok(())
     }
     
@@ -303,7 +304,7 @@ impl UdpTransport {
     
     /// 解析域名
     pub fn parse_name(data: &[u8], mut offset: usize) -> Result<(String, usize)> {
-        println!("[DEBUG] 开始解析域名，起始偏移: {}, 数据长度: {}", offset, data.len());
+        dns_debug!("开始解析域名，起始偏移: {}, 数据长度: {}", offset, data.len());
         
         let mut name = String::new();
         let mut jumped = false;
@@ -314,20 +315,20 @@ impl UdpTransport {
         loop {
             loop_count += 1;
             if loop_count > MAX_LOOPS {
-                println!("[DEBUG] 域名解析循环次数超限，可能存在循环引用");
+                dns_debug!("域名解析循环次数超限，可能存在循环引用");
                 return Err(DnsError::Protocol("Name parsing loop detected".to_string()));
             }
             
             if offset >= data.len() {
-                println!("[DEBUG] 偏移量 {} 超出数据长度 {}", offset, data.len());
+                dns_debug!("偏移量 {} 超出数据长度 {}", offset, data.len());
                 return Err(DnsError::Protocol("Name parsing overflow".to_string()));
             }
             
             let len = data[offset];
-            println!("[DEBUG] 偏移 {}: 长度字节 = 0x{:02X} ({})", offset, len, len);
+            dns_debug!("偏移 {}: 长度字节 = 0x{:02X} ({})", offset, len, len);
             
             if len == 0 {
-                println!("[DEBUG] 遇到域名终止符，解析完成");
+                dns_debug!("遇到域名终止符，解析完成");
                 offset += 1;
                 break;
             }
@@ -335,22 +336,22 @@ impl UdpTransport {
             if (len & 0xC0) == 0xC0 {
                 // 压缩指针
                 if offset + 1 >= data.len() {
-                    println!("[DEBUG] 压缩指针数据不完整");
+                    dns_debug!("压缩指针数据不完整");
                     return Err(DnsError::Protocol("Incomplete compression pointer".to_string()));
                 }
                 
                 let pointer = (((len & 0x3F) as usize) << 8) | (data[offset + 1] as usize);
-                println!("[DEBUG] 压缩指针指向偏移: {}", pointer);
+                dns_debug!("压缩指针指向偏移: {}", pointer);
                 
                 if pointer >= data.len() {
-                    println!("[DEBUG] 压缩指针 {} 超出数据范围 {}", pointer, data.len());
+                    dns_debug!("压缩指针 {} 超出数据范围 {}", pointer, data.len());
                     return Err(DnsError::Protocol("Invalid compression pointer".to_string()));
                 }
                 
                 if !jumped {
                     jump_offset = offset + 2;
                     jumped = true;
-                    println!("[DEBUG] 设置跳转返回点: {}", jump_offset);
+                    dns_debug!("设置跳转返回点: {}", jump_offset);
                 }
                 
                 offset = pointer;
@@ -359,13 +360,13 @@ impl UdpTransport {
             
             // 普通标签
             if len > 63 {
-                println!("[DEBUG] 标签长度 {} 超过63字节限制", len);
+                dns_debug!("标签长度 {} 超过63字节限制", len);
                 return Err(DnsError::Protocol("Label too long".to_string()));
             }
             
             offset += 1;
             if offset + len as usize > data.len() {
-                println!("[DEBUG] 标签数据超出范围: 偏移{}+长度{} > 数据长度{}", offset, len, data.len());
+                dns_debug!("标签数据超出范围: 偏移{}+长度{} > 数据长度{}", offset, len, data.len());
                 return Err(DnsError::Protocol("Name label overflow".to_string()));
             }
             
@@ -374,17 +375,17 @@ impl UdpTransport {
             }
             
             let label = String::from_utf8_lossy(&data[offset..offset + len as usize]);
-            println!("[DEBUG] 解析标签: '{}'", label);
+            dns_debug!("解析标签: '{}'", label);
             name.push_str(&label);
             offset += len as usize;
         }
         
         if jumped {
             offset = jump_offset;
-            println!("[DEBUG] 恢复到跳转返回点: {}", offset);
+            dns_debug!("恢复到跳转返回点: {}", offset);
         }
         
-        println!("[DEBUG] 域名解析完成: '{}', 最终偏移: {}", name, offset);
+        dns_debug!("域名解析完成: '{}', 最终偏移: {}", name, offset);
         Ok((name, offset))
     }
     
@@ -422,6 +423,35 @@ impl UdpTransport {
                     RecordType::PTR => Ok(RecordData::PTR(name)),
                     _ => unreachable!(),
                 }
+            }
+            RecordType::MX => {
+                if rdata.len() < 3 {
+                    return Err(DnsError::Protocol("Invalid MX record length".to_string()));
+                }
+                // MX记录格式: 优先级(2字节) + 交换机域名
+                let priority = u16::from_be_bytes([rdata[0], rdata[1]]);
+                // 解析交换机域名，从rdata_offset + 2开始
+                let (exchange, _) = Self::parse_name(full_data, rdata_offset + 2)?;
+                Ok(RecordData::MX { priority, exchange })
+            }
+            RecordType::TXT => {
+                // TXT记录可能包含多个字符串，每个字符串前有长度字节
+                let mut texts = Vec::new();
+                let mut offset = 0;
+                while offset < rdata.len() {
+                    if offset >= rdata.len() {
+                        break;
+                    }
+                    let len = rdata[offset] as usize;
+                    offset += 1;
+                    if offset + len > rdata.len() {
+                        return Err(DnsError::Protocol("Invalid TXT record format".to_string()));
+                    }
+                    let text = String::from_utf8_lossy(&rdata[offset..offset + len]).to_string();
+                    texts.push(text);
+                    offset += len;
+                }
+                Ok(RecordData::TXT(texts))
             }
             _ => Ok(RecordData::Unknown(rdata.to_vec())),
         }
@@ -475,33 +505,33 @@ impl UdpTransport {
 #[async_trait]
 impl Transport for UdpTransport {
     async fn send(&self, request: &Request) -> Result<Response> {
-        println!("[DEBUG] UDP传输开始发送请求");
-        println!("[DEBUG] 目标域名: {}", request.query.name);
-        println!("[DEBUG] 查询类型: {:?}", request.query.qtype);
+        dns_debug!("UDP传输开始发送请求");
+        dns_debug!("目标域名: {}", request.query.name);
+        dns_debug!("查询类型: {:?}", request.query.qtype);
         
         // 平台特定的socket绑定策略
         let socket = if cfg!(windows) {
-            println!("[DEBUG] 使用Windows平台socket创建策略");
+            dns_debug!("使用Windows平台socket创建策略");
             // Windows平台：使用特定的绑定策略
             self.create_windows_socket().await?
         } else {
-            println!("[DEBUG] 使用Unix/Linux平台socket创建策略");
+            dns_debug!("使用Unix/Linux平台socket创建策略");
             // Unix/Linux平台：使用标准绑定
             UdpSocket::bind("0.0.0.0:0").await
                 .map_err(|e| DnsError::Network(format!("Failed to bind UDP socket: {}", e)))?
         };
         
         let server_addr = format!("{}:{}", self.config.server, self.config.port);
-        println!("[DEBUG] DNS服务器地址: {}", server_addr);
+        dns_debug!("DNS服务器地址: {}", server_addr);
         
         // 平台特定的socket配置
         if cfg!(windows) {
-            println!("[DEBUG] 配置Windows socket选项");
+            dns_debug!("配置Windows socket选项");
             self.configure_windows_socket(&socket).await?;
         }
         
         let request_data = Self::serialize_request(request)?;
-        println!("[DEBUG] 请求数据长度: {} 字节", request_data.len());
+        dns_debug!("请求数据长度: {} 字节", request_data.len());
         
         let send_result = timeout(
             self.config.timeout,
@@ -540,7 +570,7 @@ impl Transport for UdpTransport {
             Err(_) => return Err(DnsError::Timeout),
         };
         
-        println!("[DEBUG] 收到DNS响应，长度: {} 字节", len);
+        dns_debug!("收到DNS响应，长度: {} 字节", len);
         
         // 打印响应数据的十六进制内容用于调试
         let preview_len = len.min(64);
@@ -548,15 +578,15 @@ impl Transport for UdpTransport {
             .map(|b| format!("{:02X}", b))
             .collect::<Vec<_>>()
             .join(" ");
-        println!("[DEBUG] 响应数据预览 (前{}字节): {}", preview_len, hex_preview);
+        dns_debug!("响应数据预览 (前{}字节): {}", preview_len, hex_preview);
         
         let result = Self::deserialize_response(&buffer[..len]);
         match &result {
             Ok(response) => {
-                println!("[DEBUG] DNS响应解析成功，包含 {} 个回答记录", response.answers.len());
+                dns_debug!("DNS响应解析成功，包含 {} 个回答记录", response.answers.len());
             },
             Err(e) => {
-                println!("[DEBUG] DNS响应解析失败: {}", e);
+                dns_error!("DNS响应解析失败: {}", e);
             }
         }
         
