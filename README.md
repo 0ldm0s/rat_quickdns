@@ -1,10 +1,5 @@
 # rat_quickdns
 
-[![Crates.io](https://img.shields.io/crates/v/rat_quickdns.svg)](https://crates.io/crates/rat_quickdns)
-[![Documentation](https://docs.rs/rat_quickdns/badge.svg)](https://docs.rs/rat_quickdns)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-[![Build Status](https://github.com/your-org/rat_quickdns/workflows/CI/badge.svg)](https://github.com/your-org/rat_quickdns/actions)
-
 高性能、开箱即用的DNS解析库，集成了`rat_quickmem`内存管理和`bincode2`序列化。
 
 ## 特性
@@ -895,12 +890,6 @@ cargo fmt
 - [Tokio](https://tokio.rs/) - 异步运行时
 - [Hyper](https://hyper.rs/) - HTTP 客户端
 - [Rustls](https://github.com/rustls/rustls) - TLS 实现
-
-## 📞 联系
-
-- 问题报告：[GitHub Issues](https://github.com/your-org/rat_quickdns/issues)
-- 功能请求：[GitHub Discussions](https://github.com/your-org/rat_quickdns/discussions)
-- 邮件：ratquickdns@example.com
 
 ---
 
