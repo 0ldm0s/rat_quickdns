@@ -10,20 +10,16 @@ ROUND_ROBIN策略性能优化示例
 4. 性能对比
 """
 
-import asyncio
 import time
 import statistics
 from typing import List, Dict, Any
 
-# 假设的Python绑定导入（实际使用时需要根据实际模块名调整）
+# Python绑定导入
 try:
-    from rat_quickdns import (
-        DnsResolverBuilder,
-        QueryStrategy,
-        DnsRecordType
-    )
+    import rat_quickdns_py as dns
+    from rat_quickdns_py import QueryStrategy
 except ImportError:
-    print("请确保已正确安装 rat_quickdns Python 绑定")
+    print("请确保已正确安装 rat_quickdns_py Python 绑定")
     exit(1)
 
 
@@ -46,7 +42,7 @@ class RoundRobinOptimizationDemo:
     
     def create_basic_resolver(self) -> 'DnsResolver':
         """创建基础ROUND_ROBIN解析器"""
-        builder = DnsResolverBuilder()
+        builder = dns.DnsResolverBuilder()
         
         # 设置ROUND_ROBIN策略
         builder.query_strategy(QueryStrategy.ROUND_ROBIN)
@@ -66,7 +62,7 @@ class RoundRobinOptimizationDemo:
     
     def create_optimized_resolver(self) -> 'DnsResolver':
         """创建优化的ROUND_ROBIN解析器"""
-        builder = DnsResolverBuilder()
+        builder = dns.DnsResolverBuilder()
         
         # 设置ROUND_ROBIN策略
         builder.query_strategy(QueryStrategy.ROUND_ROBIN)
@@ -78,18 +74,19 @@ class RoundRobinOptimizationDemo:
         builder.add_udp_upstream("Google DNS", "8.8.8.8")
         builder.add_udp_upstream("Cloudflare DNS", "1.1.1.1")
         
-        # 应用ROUND_ROBIN优化
-        builder.optimize_for_round_robin()
+        # 优化配置（使用可用的API）
+        builder.timeout(2.0)  # 更短的超时时间
+        builder.enable_health_checker(True)
         
-        # 或者手动配置优化参数
-        # builder.round_robin_timeout(1.5)  # 1.5秒超时
-        # builder.enable_health_checker(True)
-        # builder.retries(1)  # 减少重试次数
-        # builder.concurrent_queries(4)  # 增加并发数
+        # 注意：以下优化方法可能在当前版本中不可用
+        # builder.optimize_for_round_robin()
+        # builder.round_robin_timeout(1.5)
+        # builder.retries(1)
+        # builder.concurrent_queries(4)
         
         return builder.build()
     
-    async def benchmark_resolver(self, resolver: 'DnsResolver', name: str, iterations: int = 50) -> Dict[str, Any]:
+    def benchmark_resolver(self, resolver: 'DnsResolver', name: str, iterations: int = 50) -> Dict[str, Any]:
         """对解析器进行性能测试"""
         print(f"\n🚀 开始测试 {name} (共{iterations}次查询)...")
         
@@ -104,19 +101,20 @@ class RoundRobinOptimizationDemo:
             
             try:
                 query_start = time.time()
-                result = await resolver.resolve_a(domain)
+                result = resolver.resolve_a(domain)
                 query_end = time.time()
                 
-                if result.is_ok():
+                # 检查结果是否为有效的IP地址列表
+                if result and isinstance(result, list) and len(result) > 0:
                     success_count += 1
                     latency_ms = (query_end - query_start) * 1000
                     latencies.append(latency_ms)
                     
                     if i % 10 == 0:
-                        print(f"  ✅ {domain}: {latency_ms:.1f}ms")
+                        print(f"  ✅ {domain}: {result[0]} ({latency_ms:.1f}ms)")
                 else:
                     failure_count += 1
-                    print(f"  ❌ {domain}: {result.unwrap_err()}")
+                    print(f"  ❌ {domain}: 解析失败或返回空结果")
                     
             except Exception as e:
                 failure_count += 1
@@ -181,7 +179,7 @@ class RoundRobinOptimizationDemo:
         print("  3. 启用健康检查避免选择不可用服务器")
         print("  4. 增加并发查询数量提高吞吐量")
     
-    async def run_demo(self):
+    def run_demo(self):
         """运行完整的演示"""
         print("🔧 ROUND_ROBIN策略性能优化演示")
         print("=" * 50)
@@ -193,8 +191,8 @@ class RoundRobinOptimizationDemo:
         
         # 性能测试
         iterations = 100
-        basic_stats = await self.benchmark_resolver(basic_resolver, "基础ROUND_ROBIN", iterations)
-        optimized_stats = await self.benchmark_resolver(optimized_resolver, "优化ROUND_ROBIN", iterations)
+        basic_stats = self.benchmark_resolver(basic_resolver, "基础ROUND_ROBIN", iterations)
+        optimized_stats = self.benchmark_resolver(optimized_resolver, "优化ROUND_ROBIN", iterations)
         
         # 打印对比结果
         self.print_comparison(basic_stats, optimized_stats)
@@ -207,8 +205,8 @@ def main():
     demo = RoundRobinOptimizationDemo()
     
     try:
-        # 运行异步演示
-        asyncio.run(demo.run_demo())
+        # 运行演示
+        demo.run_demo()
     except KeyboardInterrupt:
         print("\n⏹️  演示被用户中断")
     except Exception as e:

@@ -32,10 +32,10 @@ def basic_resolve_example():
     
     print(f"批量解析耗时: {elapsed:.2f}ms")
     for i, result in enumerate(results):
-        if result.is_ok():
-            print(f"  ✓ {domains[i]} -> {result.unwrap()}")
+        if result and isinstance(result, list) and len(result) > 0:
+            print(f"  ✓ {domains[i]} -> {result}")
         else:
-            print(f"  ✗ {domains[i]} -> 错误: {result.unwrap_err()}")
+            print(f"  ✗ {domains[i]} -> 解析失败或返回空结果")
 
 
 def custom_resolver_example():

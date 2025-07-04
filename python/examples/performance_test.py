@@ -68,8 +68,8 @@ def test_quickdns_single(domains: List[str], iterations: int = 1) -> Dict[str, A
     # 创建解析器
     builder = quickdns.DnsResolverBuilder()
     builder.query_strategy(QueryStrategy.FIFO)  # 使用最快优先策略
-    builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-    builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
+    builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+    builder.add_udp_upstream("Google", "8.8.8.8:53")
     builder.timeout(5.0)
     resolver = builder.build()
     
@@ -128,8 +128,8 @@ def test_quickdns_batch(domains: List[str], iterations: int = 1) -> Dict[str, An
     # 创建解析器
     builder = quickdns.DnsResolverBuilder()
     builder.query_strategy(QueryStrategy.FIFO)  # 使用最快优先策略
-    builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-    builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
+    builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+    builder.add_udp_upstream("Google", "8.8.8.8:53")
     builder.timeout(5.0)
     resolver = builder.build()
     
@@ -144,7 +144,7 @@ def test_quickdns_batch(domains: List[str], iterations: int = 1) -> Dict[str, An
         
         # 统计成功数量
         for result in results:
-            if result.is_ok():
+            if result and isinstance(result, list) and len(result) > 0:
                 success_count += 1
     
     # 计算统计数据
@@ -244,8 +244,8 @@ def test_concurrent_performance(domains: List[str], workers: int, iterations: in
     # 创建解析器
     builder = quickdns.DnsResolverBuilder()
     builder.query_strategy(QueryStrategy.FIFO)
-    builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-    builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
+    builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+    builder.add_udp_upstream("Google", "8.8.8.8:53")
     builder.timeout(5.0)
     resolver = builder.build()
     
@@ -299,10 +299,9 @@ def test_strategy_performance(domains: List[str]) -> Dict[str, List[Dict[str, An
     print("\n测试不同查询策略的性能...")
     
     strategies = [
-        ("FIFO (最快优先)", QueryStrategy.FIFO),
-        ("PARALLEL (并行)", QueryStrategy.PARALLEL),
-        ("SEQUENTIAL (顺序)", QueryStrategy.SEQUENTIAL),
+        ("FIFO (先进先出)", QueryStrategy.FIFO),
         ("SMART (智能决策)", QueryStrategy.SMART),
+        ("ROUND_ROBIN (轮询)", QueryStrategy.ROUND_ROBIN),
     ]
     
     results = []
@@ -312,9 +311,9 @@ def test_strategy_performance(domains: List[str]) -> Dict[str, List[Dict[str, An
         
         builder = quickdns.DnsResolverBuilder()
         builder.query_strategy(strategy)
-        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-        builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
-        builder.add_udp_upstream("Quad9", "9.9.9.9:53", 30)
+        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+        builder.add_udp_upstream("Google", "8.8.8.8:53")
+        builder.add_udp_upstream("Quad9", "9.9.9.9:53")
         builder.timeout(5.0)
         resolver = builder.build()
         
