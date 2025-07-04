@@ -187,6 +187,146 @@ impl UdpTransport {
         Ok(())
     }
     
+    /// 序列化DNS响应
+    pub fn serialize_response(response: &Response) -> Result<Vec<u8>> {
+        dns_debug!("开始序列化DNS响应");
+        dns_debug!("响应ID: {}", response.id);
+        dns_debug!("查询数: {}, 回答数: {}, 权威数: {}, 附加数: {}", 
+                  response.queries.len(), response.answers.len(), 
+                  response.authorities.len(), response.additionals.len());
+        
+        let mut buffer = Vec::with_capacity(512);
+        
+        // DNS头部 (12字节)
+        buffer.extend_from_slice(&response.id.to_be_bytes());
+        
+        // 标志位
+        let mut flags = 0u16;
+        if response.flags.qr { flags |= 0x8000; }
+        flags |= (response.flags.opcode as u16) << 11;
+        if response.flags.aa { flags |= 0x0400; }
+        if response.flags.tc { flags |= 0x0200; }
+        if response.flags.rd { flags |= 0x0100; }
+        if response.flags.ra { flags |= 0x0080; }
+        flags |= (response.flags.z as u16) << 4;
+        flags |= response.flags.rcode as u16;
+        buffer.extend_from_slice(&flags.to_be_bytes());
+        dns_debug!("DNS头部标志位: 0x{:04X}", flags);
+        
+        // 计数字段
+        buffer.extend_from_slice(&(response.queries.len() as u16).to_be_bytes());
+        buffer.extend_from_slice(&(response.answers.len() as u16).to_be_bytes());
+        buffer.extend_from_slice(&(response.authorities.len() as u16).to_be_bytes());
+        buffer.extend_from_slice(&(response.additionals.len() as u16).to_be_bytes());
+        dns_debug!("DNS头部完成，当前缓冲区长度: {} 字节", buffer.len());
+        
+        // 序列化查询部分
+        for query in &response.queries {
+            Self::encode_name(&query.name, &mut buffer)?;
+            buffer.extend_from_slice(&u16::from(query.qtype).to_be_bytes());
+            buffer.extend_from_slice(&u16::from(query.qclass).to_be_bytes());
+        }
+        dns_debug!("查询部分序列化完成，当前缓冲区长度: {} 字节", buffer.len());
+        
+        // 序列化回答部分
+        for record in &response.answers {
+            Self::encode_record(record, &mut buffer)?;
+        }
+        dns_debug!("回答部分序列化完成，当前缓冲区长度: {} 字节", buffer.len());
+        
+        // 序列化权威部分
+        for record in &response.authorities {
+            Self::encode_record(record, &mut buffer)?;
+        }
+        dns_debug!("权威部分序列化完成，当前缓冲区长度: {} 字节", buffer.len());
+        
+        // 序列化附加部分
+        for record in &response.additionals {
+            Self::encode_record(record, &mut buffer)?;
+        }
+        dns_debug!("附加部分序列化完成，最终缓冲区长度: {} 字节", buffer.len());
+        
+        // 打印前64字节的十六进制内容用于调试
+        let preview_len = buffer.len().min(64);
+        let hex_preview: String = buffer[..preview_len].iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(" ");
+        dns_debug!("响应数据预览 (前{}字节): {}", preview_len, hex_preview);
+        
+        Ok(buffer)
+    }
+    
+    /// 编码DNS记录
+    pub fn encode_record(record: &crate::types::Record, buffer: &mut Vec<u8>) -> Result<()> {
+        // 编码名称
+        Self::encode_name(&record.name, buffer)?;
+        
+        // 编码类型、类别、TTL
+        buffer.extend_from_slice(&u16::from(record.rtype).to_be_bytes());
+        buffer.extend_from_slice(&u16::from(record.class).to_be_bytes());
+        buffer.extend_from_slice(&record.ttl.to_be_bytes());
+        
+        // 编码数据长度和数据
+        let data_bytes = Self::encode_record_data(&record.data)?;
+        buffer.extend_from_slice(&(data_bytes.len() as u16).to_be_bytes());
+        buffer.extend_from_slice(&data_bytes);
+        
+        Ok(())
+    }
+    
+    /// 编码记录数据
+    pub fn encode_record_data(data: &crate::types::RecordData) -> Result<Vec<u8>> {
+        use crate::types::RecordData;
+        
+        match data {
+            RecordData::A(ip) => Ok(ip.octets().to_vec()),
+            RecordData::AAAA(ip) => Ok(ip.octets().to_vec()),
+            RecordData::CNAME(name) | RecordData::NS(name) | RecordData::PTR(name) => {
+                let mut buffer = Vec::new();
+                Self::encode_name(name, &mut buffer)?;
+                Ok(buffer)
+            },
+            RecordData::MX { priority, exchange } => {
+                let mut buffer = Vec::new();
+                buffer.extend_from_slice(&priority.to_be_bytes());
+                Self::encode_name(exchange, &mut buffer)?;
+                Ok(buffer)
+            },
+            RecordData::TXT(texts) => {
+                let mut buffer = Vec::new();
+                for text in texts {
+                    if text.len() > 255 {
+                        return Err(DnsError::Protocol("TXT record too long".to_string()));
+                    }
+                    buffer.push(text.len() as u8);
+                    buffer.extend_from_slice(text.as_bytes());
+                }
+                Ok(buffer)
+            },
+            RecordData::SOA { mname, rname, serial, refresh, retry, expire, minimum } => {
+                let mut buffer = Vec::new();
+                Self::encode_name(mname, &mut buffer)?;
+                Self::encode_name(rname, &mut buffer)?;
+                buffer.extend_from_slice(&serial.to_be_bytes());
+                buffer.extend_from_slice(&refresh.to_be_bytes());
+                buffer.extend_from_slice(&retry.to_be_bytes());
+                buffer.extend_from_slice(&expire.to_be_bytes());
+                buffer.extend_from_slice(&minimum.to_be_bytes());
+                Ok(buffer)
+            },
+            RecordData::SRV { priority, weight, port, target } => {
+                let mut buffer = Vec::new();
+                buffer.extend_from_slice(&priority.to_be_bytes());
+                buffer.extend_from_slice(&weight.to_be_bytes());
+                buffer.extend_from_slice(&port.to_be_bytes());
+                Self::encode_name(target, &mut buffer)?;
+                Ok(buffer)
+            },
+            RecordData::Unknown { data, .. } => Ok(data.clone()),
+        }
+    }
+    
     /// 反序列化DNS响应
     pub fn deserialize_response(data: &[u8]) -> Result<Response> {
         if data.len() < 12 {
