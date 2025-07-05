@@ -203,19 +203,19 @@ impl PyDnsResolverBuilder {
         Ok(())
     }
     
-    /// 启用健康检查器
+    /// 启用上游监控
     /// 
     /// Args:
-    ///     enable (bool): 是否启用健康检查
+    ///     enable (bool): 是否启用上游监控
     /// 
     /// Returns:
     ///     DnsResolverBuilder: 返回自身以支持链式调用
     /// 
     /// Example:
-    ///     >>> builder.enable_health_checker(True)
-    pub fn enable_health_checker(&mut self, enable: bool) -> PyResult<()> {
+    ///     >>> builder.enable_upstream_monitoring(True)
+    pub fn enable_upstream_monitoring(&mut self, enable: bool) -> PyResult<()> {
         let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.with_health_check(enable);
+        self.inner = inner.with_upstream_monitoring(enable);
         Ok(())
     }
     
@@ -257,8 +257,8 @@ impl PyDnsResolverBuilder {
     
 
     
-    // 注意：健康检查间隔在当前版本中不支持配置
-    // 健康检查功能通过 enable_health_checker 启用后会使用默认间隔
+    // 注意：上游监控间隔在当前版本中不支持配置
+    // 上游监控功能通过 enable_upstream_monitoring 启用后会使用默认间隔
     
     /// 构建DNS解析器实例
     /// 

@@ -39,10 +39,24 @@ impl HttpsTransport {
         Err(DnsError::Config("HTTPS support requires 'reqwest' feature".to_string()))
     }
     
-    /// 使用默认配置创建HTTPS传输
-    pub fn default() -> Result<Self> {
-        Self::new(HttpsConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供 HttpsConfig，不能依赖隐式默认值
+    // 
+    // 迁移示例：
+    // 旧代码: HttpsTransport::default()
+    // 新代码: HttpsTransport::new(HttpsConfig {
+    //     base: TransportConfig {
+    //         server: "cloudflare-dns.com".to_string(),
+    //         port: 443,
+    //         timeout: Duration::from_secs(5),
+    //         tcp_fast_open: false,
+    //         tcp_nodelay: true,
+    //         pool_size: 10,
+    //     },
+    //     url: "https://cloudflare-dns.com/dns-query".to_string(),
+    //     method: HttpMethod::POST,
+    //     user_agent: "RatQuickDNS/0.1.0".to_string(),
+    // })
     
     /// 将DNS请求编码为base64url格式(用于GET方法)
     #[cfg(feature = "reqwest")]
@@ -209,41 +223,22 @@ impl Transport for HttpsTransport {
     }
 }
 
-/// 常用的DoH服务器配置
-impl HttpsConfig {
-    /// Cloudflare DoH配置
-    pub fn cloudflare() -> Self {
-        Self {
-            url: "https://cloudflare-dns.com/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-    
-    /// Google DoH配置
-    pub fn google() -> Self {
-        Self {
-            url: "https://dns.google/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-    
-    /// Quad9 DoH配置
-    pub fn quad9() -> Self {
-        Self {
-            url: "https://dns.quad9.net/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-    
-    /// OpenDNS DoH配置
-    pub fn opendns() -> Self {
-        Self {
-            url: "https://doh.opendns.com/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-}
+// 注意：移除了便捷配置方法，因为它们依赖兜底行为
+// 硬编码的默认值（如 cloudflare 服务器、POST方法）是兜底代码
+// 用户现在必须明确配置所有HTTPS参数
+//
+// 迁移示例：
+// 旧代码: HttpsConfig::cloudflare()
+// 新代码: HttpsConfig {
+//     base: TransportConfig {
+//         server: "cloudflare-dns.com".to_string(),
+//         port: 443,
+//         timeout: Duration::from_secs(5),
+//         tcp_fast_open: false,
+//         tcp_nodelay: true,
+//         pool_size: 10,
+//     },
+//     url: "https://cloudflare-dns.com/dns-query".to_string(),
+//     method: HttpMethod::POST,
+//     user_agent: get_user_agent(),
+// }

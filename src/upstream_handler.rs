@@ -4,9 +4,9 @@
 
 use crate::{
     transport::{Transport, TransportConfig, HttpsConfig, TlsConfig},
+    utils::{parse_server_address, parse_url_components, get_user_agent},
     Result, DnsError,
 };
-use url;
 use std::{
     collections::HashMap,
     time::Duration,
@@ -215,7 +215,7 @@ impl UpstreamHandler for DoHHandler {
             },
             url: url.clone(),
             method: crate::transport::HttpMethod::POST,
-            user_agent: "RatQuickDNS/1.0".to_string(),
+            user_agent: get_user_agent(),
         };
         
         Ok(Box::new(crate::transport::HttpsTransport::new(config)?))
@@ -314,31 +314,7 @@ impl UpstreamManager {
     }
 }
 
-/// 解析服务器地址和端口
-fn parse_server_address(server: &str, default_port: u16) -> Result<(String, u16)> {
-    if let Some(colon_pos) = server.rfind(':') {
-        let (addr, port_str) = server.split_at(colon_pos);
-        let port = port_str[1..].parse::<u16>()
-            .map_err(|_| DnsError::InvalidConfig(format!("Invalid port in server address: {}", server)))?;
-        Ok((addr.to_string(), port))
-    } else {
-        Ok((server.to_string(), default_port))
-    }
-}
-
-/// 从URL中解析主机名和端口
-fn parse_url_components(url: &str) -> Result<(String, u16)> {
-    let parsed = url::Url::parse(url)
-        .map_err(|e| DnsError::InvalidConfig(format!("Invalid URL: {}", e)))?;
-    
-    let hostname = parsed.host_str()
-        .ok_or_else(|| DnsError::InvalidConfig("URL must have hostname".to_string()))?
-        .to_string();
-    
-    let port = parsed.port().unwrap_or(443);
-    
-    Ok((hostname, port))
-}
+// 解析函数已移至 crate::utils 模块，避免代码重复
 
 /// 构建器辅助函数
 impl UpstreamSpec {

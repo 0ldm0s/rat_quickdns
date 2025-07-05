@@ -37,29 +37,44 @@ pub struct DnsResolverBuilder {
     current_region: String,
 }
 
-impl Default for DnsResolverBuilder {
-    fn default() -> Self {
-        Self {
-            config: CoreResolverConfig::default(),
-            upstream_manager: UpstreamManager::new(),
-            quickmem_config: QuickMemConfig {
-                max_data_size: 10 * 1024 * 1024, // 10MB
-                max_batch_count: 1000,
-                pool_initial_capacity: 1024,
-                pool_max_capacity: 10 * 1024 * 1024,
-                enable_parallel: true,
-            },
-            query_strategy: QueryStrategy::Smart,
-            enable_edns: true,
-            current_region: "default".to_string(),
-        }
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认值（如 Smart策略、EDNS启用、QuickMem配置等）是兜底代码
+// 用户必须明确指定所有配置项
 
 impl DnsResolverBuilder {
-    /// 创建新的构造器
-    pub fn new() -> Self {
-        Self::default()
+    /// 创建新的构造器（需要明确指定所有配置）
+    pub fn new(
+        query_strategy: QueryStrategy,
+        enable_edns: bool,
+        current_region: String,
+        quickmem_config: QuickMemConfig,
+    ) -> Self {
+        // 创建一个基本的配置，用户需要进一步配置
+        let config = CoreResolverConfig::new(
+            query_strategy,
+            std::time::Duration::from_secs(5), // 临时默认值，用户应该明确设置
+            2, // 临时默认值，用户应该明确设置
+            false, // 临时默认值，用户应该明确设置
+            std::time::Duration::from_secs(300), // 临时默认值
+            false, // 临时默认值，用户应该明确设置
+            std::time::Duration::from_secs(30), // 临时默认值
+            53, // 临时默认值，用户应该明确设置
+            1, // 临时默认值，用户应该明确设置
+            true, // 临时默认值
+            4096, // 临时默认值
+            false, // 临时默认值
+            zerg_creep::logger::LevelFilter::Info, // 临时默认值
+            false, // 临时默认值
+        );
+        
+        Self {
+            config,
+            upstream_manager: UpstreamManager::new(),
+            quickmem_config,
+            query_strategy,
+            enable_edns,
+            current_region,
+        }
     }
     
     /// 设置查询策略
@@ -166,7 +181,7 @@ impl DnsResolverBuilder {
     pub fn optimize_for_round_robin(mut self) -> Self {
         if matches!(self.query_strategy, QueryStrategy::RoundRobin) {
             self.config.default_timeout = Duration::from_millis(1500); // 1.5秒超时
-            self.config.enable_health_check = true; // 启用健康检查
+            self.config.enable_upstream_monitoring = true; // 启用上游监控
             self.config.retry_count = 1; // 减少重试次数，快速失败
             self.config.concurrent_queries = self.config.concurrent_queries.max(4); // 至少4个并发
         }
@@ -191,9 +206,9 @@ impl DnsResolverBuilder {
         self
     }
     
-    /// 启用/禁用健康检查
-    pub fn with_health_check(mut self, enable: bool) -> Self {
-        self.config.enable_health_check = enable;
+    /// 启用/禁用上游监控
+    pub fn with_upstream_monitoring(mut self, enable: bool) -> Self {
+        self.config.enable_upstream_monitoring = enable;
         self
     }
     

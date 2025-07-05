@@ -289,7 +289,7 @@ impl PyDnsResolver {
         dict.set_item("successful_queries", stats.successful_queries)?;
         dict.set_item("failed_queries", stats.failed_queries)?;
         dict.set_item("total_upstreams", stats.total_upstreams)?;
-        dict.set_item("healthy_upstreams", stats.healthy_upstreams)?;
+        dict.set_item("available_upstreams", stats.available_upstreams)?;
         dict.set_item("strategy", format!("{:?}", stats.strategy))?;
         dict.set_item("edns_enabled", stats.edns_enabled)?;
         

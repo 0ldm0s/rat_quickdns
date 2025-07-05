@@ -341,7 +341,7 @@ pub fn create_preset_builder(preset: &str) -> pyo3::PyResult<crate::python_api::
             builder.add_dot_upstream("Quad9".to_string(), "9.9.9.9:853".to_string());
             builder.timeout(5.0);
             builder.enable_edns(true);
-            builder.enable_health_checker(true);
+            builder.enable_upstream_monitoring(true);
         },
         "balanced" => {
             // 平衡配置：混合使用多种协议和策略
@@ -351,7 +351,7 @@ pub fn create_preset_builder(preset: &str) -> pyo3::PyResult<crate::python_api::
             builder.add_udp_upstream("Quad9".to_string(), "9.9.9.9:53".to_string());
             builder.timeout(4.0);
             builder.enable_edns(true);
-            builder.enable_health_checker(true);
+            builder.enable_upstream_monitoring(true);
         },
         _ => {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(

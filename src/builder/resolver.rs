@@ -9,6 +9,7 @@ use rat_quickmem::QuickMemConfig;
 
 use crate::resolver::{CoreResolverConfig, CoreResolver};
 use crate::upstream_handler::UpstreamManager;
+use crate::utils::{parse_simple_server_address, parse_url_components, get_user_agent};
 use crate::error::{DnsError, Result};
 use super::{
     strategy::QueryStrategy,
@@ -56,13 +57,8 @@ impl SmartDnsResolver {
         for spec in upstream_manager.get_specs() {
             match spec.transport_type {
                 crate::upstream_handler::UpstreamType::Udp => {
-                    // 解析服务器地址和端口
-                    let (server, port) = if spec.server.contains(':') {
-                        let parts: Vec<&str> = spec.server.split(':').collect();
-                        (parts[0].to_string(), parts[1].parse().unwrap_or(53))
-                    } else {
-                        (spec.server.clone(), 53)
-                    };
+                    // 使用公共函数解析服务器地址和端口
+                    let (server, port) = parse_simple_server_address(&spec.server, 53);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -75,13 +71,8 @@ impl SmartDnsResolver {
                     resolver.add_udp_transport(transport_config);
                 },
                 crate::upstream_handler::UpstreamType::Tcp => {
-                    // 解析服务器地址和端口
-                    let (server, port) = if spec.server.contains(':') {
-                        let parts: Vec<&str> = spec.server.split(':').collect();
-                        (parts[0].to_string(), parts[1].parse().unwrap_or(53))
-                    } else {
-                        (spec.server.clone(), 53)
-                    };
+                    // 使用公共函数解析服务器地址和端口
+                    let (server, port) = parse_simple_server_address(&spec.server, 53);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -94,10 +85,21 @@ impl SmartDnsResolver {
                     resolver.add_tcp_transport(transport_config);
                 },
                 crate::upstream_handler::UpstreamType::DoH => {
+                    // 验证HTTPS URL格式
+                    if !spec.server.starts_with("https://") {
+                        return Err(DnsError::InvalidConfig("DoH server must be HTTPS URL".to_string()));
+                    }
+                    
+                    // 使用公共函数从URL中解析主机名和端口
+                    let (hostname, port) = parse_url_components(&spec.server)?;
+                    
+                    // 优先使用预解析的IP地址进行连接
+                    let connection_server = spec.resolved_ip.as_ref().unwrap_or(&hostname);
+                    
                     let https_config = crate::transport::HttpsConfig {
                         base: crate::transport::TransportConfig {
-                            server: "cloudflare-dns.com".to_string(),
-                            port: 443,
+                            server: connection_server.clone(),
+                            port,
                             timeout: default_timeout,
                             tcp_fast_open: false,
                             tcp_nodelay: true,
@@ -105,29 +107,27 @@ impl SmartDnsResolver {
                         },
                         url: spec.server.clone(),
                         method: crate::transport::HttpMethod::POST,
-                        user_agent: "rat_quickdns/0.1.0".to_string(),
+                        user_agent: get_user_agent(),
                     };
                     resolver.add_https_transport(https_config)?;
                 },
                 crate::upstream_handler::UpstreamType::DoT => {
-                    // 解析服务器地址和端口
-                    let (server, port) = if spec.server.contains(':') {
-                        let parts: Vec<&str> = spec.server.split(':').collect();
-                        (parts[0].to_string(), parts[1].parse().unwrap_or(853))
-                    } else {
-                        (spec.server.clone(), 853)
-                    };
+                    // 使用公共函数解析服务器地址和端口
+                    let (server, port) = parse_simple_server_address(&spec.server, 853);
+                    
+                    // 优先使用预解析的IP地址进行连接，但SNI必须使用原始域名
+                    let connection_server = spec.resolved_ip.as_ref().unwrap_or(&server);
                     
                     let tls_config = crate::transport::TlsConfig {
                         base: crate::transport::TransportConfig {
-                            server: server.clone(),
+                            server: connection_server.clone(),
                             port,
                             timeout: default_timeout,
                             tcp_fast_open: false,
                             tcp_nodelay: true,
                             pool_size: 5,
                         },
-                        server_name: server,
+                        server_name: server, // SNI使用原始域名，确保证书验证正确
                         verify_cert: true,
                     };
                     resolver.add_tls_transport(tls_config)?;
@@ -241,9 +241,8 @@ impl SmartDnsResolver {
                 Err(DnsError::NoUpstreamAvailable)
             }
         } else {
-            // 没有决策引擎，使用基础解析器
-            let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
-            Ok((response, "fifo-fallback".to_string()))
+            // 没有决策引擎，无法执行FIFO策略
+            Err(DnsError::InvalidConfig("FIFO strategy requires decision engine".to_string()))
         }
     }
     
@@ -344,9 +343,8 @@ impl SmartDnsResolver {
                 Err(DnsError::NoUpstreamAvailable)
             }
         } else {
-            // 没有决策引擎，使用基础解析器
-            let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
-            Ok((response, "round-robin-fallback".to_string()))
+            // 没有决策引擎，无法执行Round-robin策略
+            Err(DnsError::InvalidConfig("Round-robin strategy requires decision engine".to_string()))
         }
     }
     
@@ -400,12 +398,12 @@ impl SmartDnsResolver {
     
     /// 获取解析器统计信息
     pub async fn get_stats(&self) -> CoreResolverStats {
-        let mut stats = CoreResolverStats::default();
+        let mut stats = CoreResolverStats::new(self.query_strategy, self.enable_edns);
         
         if let Some(engine) = &self.decision_engine {
             let metrics = engine.get_all_metrics().await;
             stats.total_upstreams = metrics.len();
-            stats.healthy_upstreams = engine.healthy_upstream_count().await;
+            stats.available_upstreams = engine.available_upstream_count().await;
             
             for (name, metric) in metrics {
                 stats.total_queries += metric.total_queries;
@@ -437,9 +435,9 @@ impl SmartDnsResolver {
         }
     }
     
-    /// 获取上游服务器健康状态
-    pub async fn get_upstream_health(&self) -> Vec<UpstreamHealth> {
-        let mut health_list = Vec::new();
+    /// 获取上游状态
+    pub async fn get_upstream_status(&self) -> Vec<UpstreamStatus> {
+        let mut status_list = Vec::new();
         
         if let Some(engine) = &self.decision_engine {
             let upstreams = engine.get_upstreams().await;
@@ -448,11 +446,11 @@ impl SmartDnsResolver {
             for upstream in upstreams {
                 let metric = metrics.get(&upstream.name).cloned().unwrap_or_default();
                 
-                health_list.push(UpstreamHealth {
+                status_list.push(UpstreamStatus {
                     name: upstream.name,
                     server: upstream.server,
                     transport_type: upstream.transport_type,
-                    is_healthy: metric.is_healthy(),
+                    is_available: metric.is_available(),
                     success_rate: metric.success_rate(),
                     avg_latency: metric.avg_latency,
                     consecutive_failures: metric.consecutive_failures,
@@ -462,7 +460,7 @@ impl SmartDnsResolver {
             }
         }
         
-        health_list
+        status_list
     }
     
     /// 获取查询策略
@@ -552,13 +550,14 @@ impl Clone for SmartDnsResolver {
             retry_count: 2,
             enable_cache: true,
             max_cache_ttl: std::time::Duration::from_secs(3600),
-            enable_health_check: true,
-            health_check_interval: std::time::Duration::from_secs(30),
+            enable_upstream_monitoring: true,
+            upstream_monitoring_interval: std::time::Duration::from_secs(30),
             default_client_address: None,
             port: 53,
             concurrent_queries: 10,
             recursion_desired: true,
             buffer_size: 4096,
+            enable_stats: true,
             log_level: zerg_creep::logger::LevelFilter::Info,
             enable_dns_log_format: true,
         };
@@ -575,7 +574,7 @@ impl Clone for SmartDnsResolver {
 }
 
 /// 解析器统计信息
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CoreResolverStats {
     /// 查询策略
     pub strategy: QueryStrategy,
@@ -586,8 +585,8 @@ pub struct CoreResolverStats {
     /// 总上游服务器数量
     pub total_upstreams: usize,
     
-    /// 健康的上游服务器数量
-    pub healthy_upstreams: usize,
+    /// 可用的上游服务器数量 - 修正术语，更准确描述服务器可用性
+    pub available_upstreams: usize,
     
     /// 总查询次数
     pub total_queries: u64,
@@ -612,6 +611,23 @@ pub struct CoreResolverStats {
 }
 
 impl CoreResolverStats {
+    /// 创建新的统计信息
+    pub fn new(strategy: QueryStrategy, edns_enabled: bool) -> Self {
+        Self {
+            strategy,
+            edns_enabled,
+            total_upstreams: 0,
+            available_upstreams: 0,
+            total_queries: 0,
+            successful_queries: 0,
+            failed_queries: 0,
+            min_latency: std::time::Duration::from_millis(0),
+            max_latency: std::time::Duration::from_millis(0),
+            fastest_upstream: None,
+            slowest_upstream: None,
+        }
+    }
+    
     /// 计算总体成功率
     pub fn success_rate(&self) -> f64 {
         if self.total_queries == 0 {
@@ -631,9 +647,9 @@ impl CoreResolverStats {
     }
 }
 
-/// 上游服务器健康状态
+/// 上游服务器状态
 #[derive(Debug, Clone)]
-pub struct UpstreamHealth {
+pub struct UpstreamStatus {
     /// 服务器名称
     pub name: String,
     
@@ -643,8 +659,8 @@ pub struct UpstreamHealth {
     /// 传输类型
     pub transport_type: crate::upstream_handler::UpstreamType,
     
-    /// 是否健康
-    pub is_healthy: bool,
+    /// 服务器可用性状态 - 修正术语，更准确描述服务器可用性
+    pub is_available: bool,
     
     /// 成功率
     pub success_rate: f64,

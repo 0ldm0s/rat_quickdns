@@ -56,10 +56,23 @@ impl TlsTransport {
         Err(DnsError::Config("TLS support requires 'tokio-rustls' feature".to_string()))
     }
     
-    /// 使用默认配置创建TLS传输
-    pub fn default() -> Result<Self> {
-        Self::new(TlsConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供 TlsConfig，不能依赖隐式默认值
+    // 
+    // 迁移示例：
+    // 旧代码: TlsTransport::default()
+    // 新代码: TlsTransport::new(TlsConfig {
+    //     base: TransportConfig {
+    //         server: "your-dns-server.com".to_string(),
+    //         port: 853,
+    //         timeout: Duration::from_secs(5),
+    //         tcp_fast_open: false,
+    //         tcp_nodelay: true,
+    //         pool_size: 10,
+    //     },
+    //     server_name: "your-dns-server.com".to_string(),
+    //     verify_cert: true,
+    // })
     
     /// 加载根证书
     #[cfg(feature = "tokio-rustls")]

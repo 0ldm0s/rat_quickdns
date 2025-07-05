@@ -21,10 +21,12 @@ impl UdpTransport {
         Self { config }
     }
     
-    /// 使用默认配置创建UDP传输
-    pub fn default() -> Self {
-        Self::new(TransportConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供 TransportConfig，不能依赖隐式默认值
+    // 
+    // 迁移示例：
+    // 旧代码: UdpTransport::default()
+    // 新代码: UdpTransport::new(your_transport_config)
     
     /// Windows平台特定的socket创建
     #[cfg(windows)]
@@ -671,8 +673,8 @@ impl UdpTransport {
         let rdlength = 4 + option_length;
         buffer.extend_from_slice(&rdlength.to_be_bytes());
         
-        // 选项代码: Client Subnet (8)
-        buffer.extend_from_slice(&edns_option_codes::CLIENT_SUBNET.to_be_bytes());
+        // 选项代码: Client Address (8) - 修正命名，原CLIENT_SUBNET容易误导
+        buffer.extend_from_slice(&edns_option_codes::CLIENT_ADDRESS.to_be_bytes());
         
         // 选项长度
         buffer.extend_from_slice(&option_length.to_be_bytes());
