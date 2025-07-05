@@ -3,34 +3,52 @@
 //! 本示例展示如何使用新的日志系统配置DNS解析器，
 //! 包括不同的日志级别和格式设置。
 
-use rat_quickdns::{
-    DnsResolverBuilder, 
-    types::{RecordType, QClass},
-    Result,
-};
+use rat_quickdns::builder::{DnsResolverBuilder, QueryStrategy};
+use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
+use rat_quickmem::QuickMemConfig;
 use zerg_creep::logger::LevelFilter;
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== DNS解析器日志配置示例 ===");
+    
+    // 创建 QuickMem 配置
+    let quickmem_config = QuickMemConfig {
+        max_data_size: 64 * 1024 * 1024, // 64MB
+        max_batch_count: 10000,
+        pool_initial_capacity: 1024,
+        pool_max_capacity: 10240,
+        enable_parallel: true,
+    };
     
     // 示例1: 使用详细日志（Debug级别）
     println!("\n1. 创建详细日志解析器...");
-    let verbose_resolver = DnsResolverBuilder::new()
-        .add_udp_upstream("阿里DNS", "223.5.5.5")
-        .add_udp_upstream("腾讯DNS", "119.29.29.29")
-        .with_verbose_logging()  // 启用详细日志
-        .with_timeout(Duration::from_secs(3))
-        .build()
-        .await?;
+    let verbose_resolver = DnsResolverBuilder::new(
+        QueryStrategy::Smart,
+        true,  // 启用 EDNS
+        "global".to_string(),
+        quickmem_config.clone(),
+    )
+    .add_udp_upstream("阿里DNS", "223.5.5.5")
+    .add_udp_upstream("腾讯DNS", "119.29.29.29")
+    .with_verbose_logging()  // 启用详细日志
+    .with_timeout(Duration::from_secs(3))
+    .build()
+    .await?;
     
     println!("执行DNS查询（详细日志模式）...");
-    match verbose_resolver.query("www.baidu.com", RecordType::A, QClass::IN).await {
+    let request = DnsQueryRequest {
+        domain: "www.baidu.com".to_string(),
+        record_type: DnsRecordType::A,
+        query_id: Some("verbose-test".to_string()),
+    };
+    
+    match verbose_resolver.query(request).await {
         Ok(response) => {
-            println!("✓ 查询成功，获得 {} 条记录", response.answers.len());
-            for answer in &response.answers {
-                println!("  - {}: {:?}", answer.name, answer.data);
+            println!("✓ 查询成功，获得 {} 条记录", response.records.len());
+            for record in &response.records {
+                println!("  - {}: {:?}", record.name, record.data);
             }
         }
         Err(e) => println!("✗ 查询失败: {}", e),

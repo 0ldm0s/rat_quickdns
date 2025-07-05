@@ -22,8 +22,20 @@ impl HttpsTransport {
     /// 创建新的HTTPS传输
     #[cfg(feature = "reqwest")]
     pub fn new(config: HttpsConfig) -> Result<Self> {
+        // 设置连接超时为总超时的1/3，最小2秒，最大5秒
+        let connect_timeout = std::cmp::min(
+            std::cmp::max(
+                config.base.timeout / 3,
+                Duration::from_secs(2)
+            ),
+            Duration::from_secs(5)
+        );
+        
         let client = Client::builder()
-            .timeout(config.base.timeout)
+            .timeout(config.base.timeout)  // 总体超时
+            .connect_timeout(connect_timeout)  // 连接超时，实现快速失败
+            .tcp_keepalive(Duration::from_secs(30))  // TCP保活
+            .tcp_nodelay(config.base.tcp_nodelay)  // TCP无延迟
             .user_agent(&config.user_agent)
             .build()
             .map_err(|e| DnsError::Http(format!("Failed to create HTTP client: {}", e)))?;

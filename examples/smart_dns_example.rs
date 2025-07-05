@@ -1,25 +1,39 @@
 //! 智能DNS解析器示例
 //! 演示FIFO和智能决策模式的使用
 
-use rat_quickdns::builder::*;
+use rat_quickdns::builder::{DnsResolverBuilder, QueryStrategy};
 use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
+use rat_quickmem::QuickMemConfig;
 use std::time::Duration;
-use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== 智能DNS解析器示例 ===");
     
+    // 创建 QuickMem 配置
+    let quickmem_config = QuickMemConfig {
+        max_data_size: 64 * 1024 * 1024, // 64MB
+        max_batch_count: 10000,
+        pool_initial_capacity: 1024,
+        pool_max_capacity: 10240,
+        enable_parallel: true,
+    };
+    
     // 1. 测试FIFO模式（默认）
     println!("\n1. 测试FIFO模式（多服务器并发查询）");
-    let fifo_resolver = DnsResolverBuilder::new()
-        .query_strategy(QueryStrategy::Fifo)
-        .enable_edns(true)
-        .add_udp_upstream("Google DNS", "8.8.8.8")
-        .add_udp_upstream("Cloudflare DNS", "1.1.1.1")
-        .add_udp_upstream("阿里DNS", "223.5.5.5")
-        .build()
-        .await?;
+    let fifo_resolver = DnsResolverBuilder::new(
+        QueryStrategy::Fifo,
+        true,
+        "global".to_string(),
+        quickmem_config.clone(),
+    )
+    .with_timeout(Duration::from_secs(5))
+    .with_retry_count(2)
+    .add_udp_upstream("阿里DNS", "223.5.5.5")
+    .add_udp_upstream("腾讯DNS", "119.29.29.29")
+    .add_udp_upstream("114DNS", "114.114.114.114")
+    .build()
+    .await?;
     
     // 测试域名解析
     let test_domains = vec!["google.com", "github.com", "example.com"];
@@ -51,16 +65,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // 2. 测试智能决策模式
     println!("\n2. 测试智能决策模式（自动选择最优服务器）");
-    let smart_resolver = DnsResolverBuilder::new()
-        .query_strategy(QueryStrategy::Smart)
-        .enable_edns(true)
-        .region("CN".to_string())
-        .add_udp_upstream("Google DNS", "8.8.8.8")
-        .add_udp_upstream("Cloudflare DNS", "1.1.1.1")
-        .add_udp_upstream("阿里DNS", "223.5.5.5")
-        .add_udp_upstream("腾讯DNS", "119.29.29.29")
-        .build()
-        .await?;
+    let smart_resolver = DnsResolverBuilder::new(
+        QueryStrategy::Smart,
+        true,
+        "CN".to_string(),
+        quickmem_config.clone(),
+    )
+    .with_timeout(Duration::from_secs(5))
+    .with_retry_count(2)
+    .add_udp_upstream("阿里DNS", "223.5.5.5")
+    .add_udp_upstream("腾讯DNS", "119.29.29.29")
+    .add_udp_upstream("114DNS", "114.114.114.114")
+    .add_udp_upstream("百度DNS", "180.76.76.76")
+    .build()
+    .await?;
     
     // 注意：健康检查功能在构建时自动启动
     println!("智能解析器已启动，包含自动健康检查功能");
@@ -91,8 +109,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    // 3. 测试多个域名查询
-    println!("\n3. 测试多个域名查询");
+    // 3. 测试轮询模式
+    println!("\n3. 测试轮询模式（负载均衡）");
+    let round_robin_resolver = DnsResolverBuilder::new(
+        QueryStrategy::RoundRobin,
+        true,
+        "global".to_string(),
+        quickmem_config.clone(),
+    )
+    .optimize_for_round_robin()  // 应用轮询优化
+    .add_udp_upstream("Google DNS", "8.8.8.8")
+    .add_udp_upstream("Cloudflare DNS", "1.1.1.1")
+    .add_udp_upstream("阿里DNS", "223.5.5.5")
+    .add_udp_upstream("腾讯DNS", "119.29.29.29")
+    .build()
+    .await?;
+
+    // 4. 测试多个域名查询
+    println!("\n4. 测试多个域名查询");
     let batch_domains = vec!["google.com", "github.com", "stackoverflow.com", "rust-lang.org"];
     
     for domain in &batch_domains {
@@ -117,8 +151,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    // 4. 测试不同记录类型
-    println!("\n4. 测试不同记录类型");
+    // 5. 测试不同记录类型
+    println!("\n5. 测试不同记录类型");
     let record_types = vec![
         ("A", DnsRecordType::A),
         ("AAAA", DnsRecordType::AAAA),
@@ -151,8 +185,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    // 5. 测试解析器统计信息
-    println!("\n5. 查看解析器统计信息");
+    // 6. 测试解析器统计信息
+    println!("\n6. 查看解析器统计信息");
     let stats = smart_resolver.get_stats().await;
     println!("总查询数: {}", stats.total_queries);
     println!("成功查询数: {}", stats.successful_queries);
