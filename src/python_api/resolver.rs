@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
-use crate::builder::EasyDnsResolver;
+use crate::builder::SmartDnsResolver;
 use crate::builder::types::{DnsQueryRequest, DnsRecordType};
 use crate::builder::strategy::QueryStrategy;
 use super::types::{PyQueryStrategy, PyDnsResult, PyEmergencyResponseInfo};
@@ -23,7 +23,7 @@ use super::types::{PyQueryStrategy, PyDnsResult, PyEmergencyResponseInfo};
 ///     ['93.184.216.34']
 #[pyclass(name = "DnsResolver")]
 pub struct PyDnsResolver {
-    inner: Arc<EasyDnsResolver>,
+    inner: Arc<SmartDnsResolver>,
     runtime: Arc<Runtime>,
 }
 
@@ -387,7 +387,7 @@ impl PyDnsResolver {
 
 impl PyDnsResolver {
     /// 创建新的Python DNS解析器实例
-    pub fn new(resolver: EasyDnsResolver) -> Self {
+    pub fn new(resolver: SmartDnsResolver) -> Self {
         let runtime = Runtime::new().expect("Failed to create Tokio runtime");
         
         Self {
@@ -397,7 +397,7 @@ impl PyDnsResolver {
     }
     
     /// 获取内部解析器的引用
-    pub fn inner(&self) -> &EasyDnsResolver {
+    pub fn inner(&self) -> &SmartDnsResolver {
         &self.inner
     }
 }

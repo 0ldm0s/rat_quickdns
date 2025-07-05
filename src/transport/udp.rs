@@ -87,12 +87,12 @@ impl UdpTransport {
         dns_debug!("请求ID: {}", request.id);
         dns_debug!("查询域名: '{}'", request.query.name);
         dns_debug!("查询类型: {:?}", request.query.qtype);
-        dns_debug!("客户端子网: {:?}", request.client_subnet);
+        dns_debug!("客户端地址: {:?}", request.client_address);
         
         let mut buffer = Vec::with_capacity(512);
         
         // 检查是否需要EDNS记录
-        let has_edns = request.client_subnet.is_some();
+        let has_edns = request.client_address.is_some();
         let additional_count = if has_edns { 1u16 } else { 0u16 };
         dns_debug!("需要EDNS记录: {}, 附加记录数: {}", has_edns, additional_count);
         
@@ -133,9 +133,9 @@ impl UdpTransport {
         dns_debug!("查询类型和类别添加完成，当前缓冲区长度: {} 字节", buffer.len());
         
         // 添加EDNS记录(如果需要)
-        if let Some(ref client_subnet) = request.client_subnet {
-            dns_debug!("开始添加EDNS记录");
-            Self::encode_edns_record(&mut buffer, client_subnet)?;
+        if let Some(ref client_address) = request.client_address {
+                dns_debug!("添加EDNS记录");
+                Self::encode_edns_record(&mut buffer, client_address)?;
             dns_debug!("EDNS记录添加完成，最终缓冲区长度: {} 字节", buffer.len());
         }
         
@@ -359,13 +359,13 @@ impl UdpTransport {
         let (query, _) = Self::parse_query(data, offset)?;
         
         // 检查是否有EDNS记录
-        let client_subnet = None; // 简化处理，暂不解析EDNS
+        let client_address = None; // 简化处理，暂不解析EDNS
         
         Ok(Request {
             id,
             flags,
             query,
-            client_subnet,
+            client_address,
         })
     }
     
@@ -640,7 +640,7 @@ impl UdpTransport {
     }
     
     /// 编码EDNS记录
-    pub fn encode_edns_record(buffer: &mut Vec<u8>, client_subnet: &crate::types::ClientSubnet) -> Result<()> {
+    pub fn encode_edns_record(buffer: &mut Vec<u8>, client_address: &crate::types::ClientAddress) -> Result<()> {
         // EDNS记录格式:
         // NAME: . (root, 1字节: 0x00)
         // TYPE: OPT (41, 2字节)
@@ -663,9 +663,9 @@ impl UdpTransport {
         buffer.push(0); // Version
         buffer.extend_from_slice(&0u16.to_be_bytes()); // Flags (DO=0, Z=0)
         
-        // 编码Client Subnet选项
-        let client_subnet_data = client_subnet.encode();
-        let option_length = client_subnet_data.len() as u16;
+        // 编码Client Address选项
+        let client_address_data = client_address.encode();
+        let option_length = client_address_data.len() as u16;
         
         // RDLENGTH: 选项头部(4字节) + 选项数据长度
         let rdlength = 4 + option_length;
@@ -678,7 +678,7 @@ impl UdpTransport {
         buffer.extend_from_slice(&option_length.to_be_bytes());
         
         // 选项数据
-        buffer.extend_from_slice(&client_subnet_data);
+        buffer.extend_from_slice(&client_address_data);
         
         Ok(())
     }

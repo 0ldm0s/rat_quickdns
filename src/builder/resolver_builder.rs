@@ -6,20 +6,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use rat_quickmem::QuickMemConfig;
 
-use crate::resolver::ResolverConfig;
+use crate::resolver::CoreResolverConfig;
 use crate::upstream_handler::{UpstreamManager, UpstreamSpec};
 use crate::error::{DnsError, Result};
 use super::{
     strategy::QueryStrategy,
     engine::SmartDecisionEngine,
-    resolver::EasyDnsResolver,
+    resolver::SmartDnsResolver,
 };
 
 /// DNS解析器构建器
 #[derive(Debug, Clone)]
 pub struct DnsResolverBuilder {
     /// 解析器配置
-    config: ResolverConfig,
+    config: CoreResolverConfig,
     
     /// 上游管理器
     upstream_manager: UpstreamManager,
@@ -40,7 +40,7 @@ pub struct DnsResolverBuilder {
 impl Default for DnsResolverBuilder {
     fn default() -> Self {
         Self {
-            config: ResolverConfig::default(),
+            config: CoreResolverConfig::default(),
             upstream_manager: UpstreamManager::new(),
             quickmem_config: QuickMemConfig {
                 max_data_size: 10 * 1024 * 1024, // 10MB
@@ -253,7 +253,7 @@ impl DnsResolverBuilder {
     }
     
     /// 构建解析器
-    pub async fn build(self) -> Result<EasyDnsResolver> {
+    pub async fn build(self) -> Result<SmartDnsResolver> {
         if self.upstream_manager.get_specs().is_empty() {
             return Err(DnsError::InvalidConfig("No upstream servers configured".to_string()));
         }
@@ -296,7 +296,7 @@ impl DnsResolverBuilder {
             _ => None,
         };
         
-        EasyDnsResolver::new(
+        SmartDnsResolver::new(
             self.config,
             self.upstream_manager,
             self.quickmem_config,

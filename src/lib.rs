@@ -20,13 +20,14 @@ pub mod python_api;
 
 pub use types::*;
 pub use transport::Transport;
-pub use resolver::Resolver;
+pub use resolver::CoreResolver;
+pub use builder::resolver::CoreResolverStats;
 pub use error::{DnsError, Result};
 pub use builder::{
-    DnsResolverBuilder, EasyDnsResolver, DnsQueryRequest, DnsQueryResponse, DnsRecord,
+    DnsResolverBuilder, SmartDnsResolver, DnsQueryRequest, DnsQueryResponse, DnsRecord,
     QueryStrategy, PerformanceMetrics, SmartDecisionEngine
 };
-pub use builder::resolver::{ResolverStats, UpstreamHealth};
+pub use builder::resolver::UpstreamHealth;
 pub use dns_response::{DnsResponseBuilder, DnsResponseWrapper};
 pub use logger::{init_dns_logger, init_dns_logger_silent, dns_format};
 
@@ -40,7 +41,7 @@ pub use rat_quickmem::{encode, decode, QuickMemConfig};
 #[macro_export]
 macro_rules! quick_dns {
     () => {
-        $crate::EasyDnsResolver::quick_setup()
+        $crate::SmartDnsResolver::quick_setup()
     };
     (public) => {
         $crate::DnsResolverBuilder::new().with_public_dns().build()

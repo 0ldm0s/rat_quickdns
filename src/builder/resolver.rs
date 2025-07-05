@@ -7,7 +7,7 @@ use std::time::Instant;
 use uuid::Uuid;
 use rat_quickmem::QuickMemConfig;
 
-use crate::resolver::{ResolverConfig, Resolver};
+use crate::resolver::{CoreResolverConfig, CoreResolver};
 use crate::upstream_handler::UpstreamManager;
 use crate::error::{DnsError, Result};
 use super::{
@@ -18,9 +18,9 @@ use super::{
 
 /// 高性能DNS解析器
 #[derive(Debug)]
-pub struct EasyDnsResolver {
+pub struct SmartDnsResolver {
     /// 底层解析器
-    resolver: Resolver,
+    resolver: CoreResolver,
     
     /// 上游管理器
     upstream_manager: UpstreamManager,
@@ -38,10 +38,10 @@ pub struct EasyDnsResolver {
     enable_edns: bool,
 }
 
-impl EasyDnsResolver {
+impl SmartDnsResolver {
     /// 创建新的DNS解析器
     pub(super) fn new(
-        config: ResolverConfig,
+        config: CoreResolverConfig,
         upstream_manager: UpstreamManager,
         quickmem_config: QuickMemConfig,
         decision_engine: Option<Arc<SmartDecisionEngine>>,
@@ -50,7 +50,7 @@ impl EasyDnsResolver {
     ) -> Result<Self> {
         // 提取需要的配置值，避免所有权问题
         let default_timeout = config.default_timeout;
-        let mut resolver = Resolver::new(config);
+        let mut resolver = CoreResolver::new(config);
         
         // 根据上游管理器配置添加传输协议
         for spec in upstream_manager.get_specs() {
@@ -399,8 +399,8 @@ impl EasyDnsResolver {
     }
     
     /// 获取解析器统计信息
-    pub async fn get_stats(&self) -> ResolverStats {
-        let mut stats = ResolverStats::default();
+    pub async fn get_stats(&self) -> CoreResolverStats {
+        let mut stats = CoreResolverStats::default();
         
         if let Some(engine) = &self.decision_engine {
             let metrics = engine.get_all_metrics().await;
@@ -542,19 +542,19 @@ impl EasyDnsResolver {
     }
 }
 
-impl Clone for EasyDnsResolver {
+impl Clone for SmartDnsResolver {
     fn clone(&self) -> Self {
-        // 由于Resolver包含trait对象，我们需要重新创建一个新的实例
+        // 由于CoreResolver包含trait对象，我们需要重新创建一个新的实例
         // 这里我们使用相同的配置来创建新的解析器
-        let config = crate::resolver::ResolverConfig {
-            strategy: crate::resolver::strategy::QueryStrategy::FastestFirst,
+        let config = crate::resolver::CoreResolverConfig {
+            strategy: crate::builder::strategy::QueryStrategy::Smart,
             default_timeout: std::time::Duration::from_secs(5),
             retry_count: 2,
             enable_cache: true,
             max_cache_ttl: std::time::Duration::from_secs(3600),
             enable_health_check: true,
             health_check_interval: std::time::Duration::from_secs(30),
-            default_client_subnet: None,
+            default_client_address: None,
             port: 53,
             concurrent_queries: 10,
             recursion_desired: true,
@@ -570,13 +570,13 @@ impl Clone for EasyDnsResolver {
             self.decision_engine.clone(),
             self.query_strategy,
             self.enable_edns,
-        ).expect("Failed to clone EasyDnsResolver")
+        ).expect("Failed to clone SmartDnsResolver")
     }
 }
 
 /// 解析器统计信息
 #[derive(Debug, Clone, Default)]
-pub struct ResolverStats {
+pub struct CoreResolverStats {
     /// 查询策略
     pub strategy: QueryStrategy,
     
@@ -611,7 +611,7 @@ pub struct ResolverStats {
     pub slowest_upstream: Option<String>,
 }
 
-impl ResolverStats {
+impl CoreResolverStats {
     /// 计算总体成功率
     pub fn success_rate(&self) -> f64 {
         if self.total_queries == 0 {

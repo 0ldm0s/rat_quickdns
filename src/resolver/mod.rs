@@ -1,7 +1,7 @@
 //! 智能DNS解析器
 
 use crate::{Request, Response, Result, DnsError};
-use crate::types::{Query, RecordType, QClass, Flags, ClientSubnet};
+use crate::types::{Query, RecordType, QClass, Flags, ClientAddress};
 use crate::transport::{Transport, UdpTransport, TcpTransport, TlsTransport, HttpsTransport};
 use crate::transport::{TransportConfig, TlsConfig, HttpsConfig};
 use std::fmt::Debug;
@@ -12,18 +12,27 @@ use tokio::time::timeout;
 use std::collections::HashMap;
 use crate::{dns_debug, dns_info, dns_error, dns_transport};
 
-pub mod strategy;
 pub mod cache;
 pub mod health;
 
-use strategy::QueryStrategy;
-use strategy::QueryResult;
+use crate::builder::strategy::QueryStrategy;
 use cache::DnsCache;
 use health::HealthChecker;
 
+/// 查询结果
+#[derive(Debug, Clone)]
+pub struct QueryResult {
+    /// 查询响应
+    pub response: Result<Response>,
+    /// 查询耗时
+    pub duration: Duration,
+    /// 传输类型
+    pub transport_type: String,
+}
+
 /// 智能DNS解析器
 #[derive(Debug, Clone)]
-pub struct Resolver {
+pub struct CoreResolver {
     /// 传输层实例
     transports: Vec<Arc<dyn Transport + Send + Sync + 'static>>,
     /// 查询策略
@@ -36,13 +45,13 @@ pub struct Resolver {
     default_timeout: Duration,
     /// 重试次数
     retry_count: usize,
-    /// 默认客户端子网信息
-    default_client_subnet: Option<ClientSubnet>,
+    /// 默认客户端地址信息
+    default_client_address: Option<ClientAddress>,
 }
 
 /// 解析器配置
 #[derive(Debug, Clone)]
-pub struct ResolverConfig {
+pub struct CoreResolverConfig {
     /// 查询策略
     pub strategy: QueryStrategy,
     /// 默认超时时间
@@ -57,8 +66,8 @@ pub struct ResolverConfig {
     pub enable_health_check: bool,
     /// 健康检查间隔
     pub health_check_interval: Duration,
-    /// 默认客户端子网信息
-    pub default_client_subnet: Option<ClientSubnet>,
+    /// 默认客户端地址信息
+    pub default_client_address: Option<ClientAddress>,
     /// DNS服务器端口
     pub port: u16,
     /// 并发查询数量
@@ -73,17 +82,17 @@ pub struct ResolverConfig {
     pub enable_dns_log_format: bool,
 }
 
-impl Default for ResolverConfig {
+impl Default for CoreResolverConfig {
     fn default() -> Self {
         Self {
-            strategy: QueryStrategy::FastestFirst,
+            strategy: QueryStrategy::Smart,
             default_timeout: Duration::from_secs(5),
             retry_count: 2,
             enable_cache: true,
             max_cache_ttl: Duration::from_secs(3600),
             enable_health_check: true,
             health_check_interval: Duration::from_secs(30),
-            default_client_subnet: None,
+            default_client_address: None,
             port: 53,
             concurrent_queries: 10,
             recursion_desired: true,
@@ -94,9 +103,9 @@ impl Default for ResolverConfig {
     }
 }
 
-impl Resolver {
+impl CoreResolver {
     /// 创建新的解析器
-    pub fn new(config: ResolverConfig) -> Self {
+    pub fn new(config: CoreResolverConfig) -> Self {
         let cache = if config.enable_cache {
             Some(Arc::new(DnsCache::new(config.max_cache_ttl)))
         } else {
@@ -116,13 +125,13 @@ impl Resolver {
             health_checker,
             default_timeout: config.default_timeout,
             retry_count: config.retry_count,
-            default_client_subnet: config.default_client_subnet,
+            default_client_address: config.default_client_address,
         }
     }
     
     /// 使用默认配置创建解析器
     pub fn default() -> Self {
-        Self::new(ResolverConfig::default())
+        Self::new(CoreResolverConfig::default())
     }
     
     /// 添加UDP传输
@@ -177,9 +186,9 @@ impl Resolver {
         class: QClass,
         client_ip: Option<IpAddr>,
     ) -> Result<Response> {
-        let client_subnet = client_ip.map(|ip| match ip {
-            IpAddr::V4(addr) => ClientSubnet::from_ipv4(addr, 24),
-            IpAddr::V6(addr) => ClientSubnet::from_ipv6(addr, 56),
+        let client_address = client_ip.map(|ip| match ip {
+            IpAddr::V4(addr) => ClientAddress::from_ipv4(addr, 24),
+            IpAddr::V6(addr) => ClientAddress::from_ipv6(addr, 56),
         });
         
         let query = Query {
@@ -200,7 +209,7 @@ impl Resolver {
             id: rand::random(),
             flags: Flags::default(),
             query: query.clone(),
-            client_subnet: client_subnet.or_else(|| self.default_client_subnet.clone()),
+            client_address: client_address.or_else(|| self.default_client_address.clone()),
         };
         
         // 执行查询策略
@@ -214,16 +223,16 @@ impl Resolver {
         Ok(response)
     }
     
-    /// 设置默认客户端子网
-    pub fn set_default_client_subnet(&mut self, client_subnet: Option<ClientSubnet>) {
-        self.default_client_subnet = client_subnet;
+    /// 设置默认客户端地址
+    pub fn set_default_client_address(&mut self, client_address: Option<ClientAddress>) {
+        self.default_client_address = client_address;
     }
     
     /// 设置默认客户端IP（便捷方法）
     pub fn set_default_client_ip(&mut self, client_ip: Option<IpAddr>) {
-        self.default_client_subnet = client_ip.map(|ip| match ip {
-            IpAddr::V4(addr) => ClientSubnet::from_ipv4(addr, 24),
-            IpAddr::V6(addr) => ClientSubnet::from_ipv6(addr, 56),
+        self.default_client_address = client_ip.map(|ip| match ip {
+            IpAddr::V4(addr) => ClientAddress::from_ipv4(addr, 24),
+            IpAddr::V6(addr) => ClientAddress::from_ipv6(addr, 56),
         });
     }
     
@@ -234,10 +243,9 @@ impl Resolver {
         }
         
         match self.strategy {
-            QueryStrategy::FastestFirst => self.query_fastest_first(request).await,
-            QueryStrategy::Parallel => self.query_parallel(request).await,
-            QueryStrategy::Sequential => self.query_sequential(request).await,
-            QueryStrategy::SmartDecision => self.query_smart_decision(request).await,
+            QueryStrategy::Fifo => self.query_fastest_first(request).await,
+            QueryStrategy::Smart => self.query_smart_decision(request).await,
+            QueryStrategy::RoundRobin => self.query_parallel(request).await,
         }
     }
     

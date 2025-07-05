@@ -12,8 +12,8 @@ pub struct Request {
     pub flags: Flags,
     /// 查询问题
     pub query: Query,
-    /// 客户端子网信息 (EDNS Client Subnet)
-    pub client_subnet: Option<ClientSubnet>,
+    /// 客户端地址信息 (EDNS Client Subnet)
+    pub client_address: Option<ClientAddress>,
 }
 
 /// DNS响应
@@ -180,9 +180,9 @@ pub enum ResponseCode {
     Unknown(u8),
 }
 
-/// EDNS客户端子网信息
+/// EDNS客户端地址信息
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientSubnet {
+pub struct ClientAddress {
     /// 客户端IP地址
     pub address: IpAddr,
     /// 源前缀长度
@@ -227,8 +227,8 @@ pub mod edns_option_codes {
     pub const PADDING: u16 = 12;
 }
 
-impl ClientSubnet {
-    /// 创建新的客户端子网信息
+impl ClientAddress {
+    /// 创建新的客户端地址信息
     pub fn new(address: IpAddr, source_prefix_length: u8) -> Self {
         Self {
             address,
@@ -237,12 +237,12 @@ impl ClientSubnet {
         }
     }
     
-    /// 从IPv4地址创建客户端子网信息
+    /// 从IPv4地址创建客户端地址信息
     pub fn from_ipv4(address: Ipv4Addr, prefix_length: u8) -> Self {
         Self::new(IpAddr::V4(address), prefix_length)
     }
     
-    /// 从IPv6地址创建客户端子网信息
+    /// 从IPv6地址创建客户端地址信息
     pub fn from_ipv6(address: Ipv6Addr, prefix_length: u8) -> Self {
         Self::new(IpAddr::V6(address), prefix_length)
     }
@@ -255,7 +255,7 @@ impl ClientSubnet {
         }
     }
     
-    /// 将客户端子网信息编码为EDNS选项数据
+    /// 将客户端地址信息编码为EDNS选项数据
     pub fn encode(&self) -> Vec<u8> {
         let mut data = Vec::new();
         
@@ -285,7 +285,7 @@ impl ClientSubnet {
         data
     }
     
-    /// 从EDNS选项数据解码客户端子网信息
+    /// 从EDNS选项数据解码客户端地址信息
     pub fn decode(data: &[u8]) -> Result<Self, &'static str> {
         if data.len() < 4 {
             return Err("Client subnet data too short");
