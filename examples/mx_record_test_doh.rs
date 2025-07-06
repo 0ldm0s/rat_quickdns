@@ -4,6 +4,7 @@
 use rat_quickdns::{
     DnsResolverBuilder, RecordType, QueryStrategy,
 };
+use rat_quickmem::QuickMemConfig;
 use std::time::Duration;
 use tokio;
 
@@ -19,6 +20,7 @@ struct DohServerConfig {
     name: &'static str,
     url: &'static str,
     region: &'static str,
+    resolved_ip: Option<&'static str>, // 预解析的IP地址，避免DNS解析延迟
 }
 
 const TEST_DOMAINS: &[MxTestCase] = &[
@@ -70,42 +72,50 @@ const DOH_SERVERS: &[DohServerConfig] = &[
         name: "腾讯DoH",
         url: "https://doh.pub/dns-query",
         region: "国内",
+        resolved_ip: Some("1.12.12.12"), // 腾讯公共DNS的IP地址
     },
     DohServerConfig {
         name: "阿里DoH",
         url: "https://dns.alidns.com/dns-query",
         region: "国内",
+        resolved_ip: Some("223.5.5.5"), // 阿里公共DNS的IP地址
     },
     DohServerConfig {
         name: "360DoH",
         url: "https://doh.360.cn/dns-query",
         region: "国内",
+        resolved_ip: Some("101.226.4.6"), // 360公共DNS的IP地址
     },
     // 国外DoH服务器
     DohServerConfig {
         name: "Cloudflare DoH",
         url: "https://cloudflare-dns.com/dns-query",
         region: "国外",
+        resolved_ip: Some("1.1.1.1"), // Cloudflare DNS的IP地址
     },
     DohServerConfig {
         name: "Google DoH",
         url: "https://dns.google/dns-query",
         region: "国外",
+        resolved_ip: Some("8.8.8.8"), // Google DNS的IP地址
     },
     DohServerConfig {
         name: "Quad9 DoH",
         url: "https://dns.quad9.net/dns-query",
         region: "国外",
+        resolved_ip: Some("9.9.9.9"), // Quad9 DNS的IP地址
     },
     DohServerConfig {
         name: "AdGuard DoH",
         url: "https://dns.adguard.com/dns-query",
         region: "国外",
+        resolved_ip: Some("94.140.14.14"), // AdGuard DNS的IP地址
     },
     DohServerConfig {
         name: "OpenDNS DoH",
         url: "https://doh.opendns.com/dns-query",
         region: "国外",
+        resolved_ip: Some("208.67.222.222"), // OpenDNS的IP地址
     },
 ];
 
@@ -115,11 +125,36 @@ async fn test_mx_record_with_doh_server(
 ) -> Result<(bool, Duration, Vec<String>), String> {
     let start = std::time::Instant::now();
     
-    let resolver = DnsResolverBuilder::new()
-        .query_strategy(QueryStrategy::Smart)
-        .with_timeout(Duration::from_secs(15)) // DoH可能需要更长时间
-        .with_retry_count(2)
-        .add_doh_upstream(format!("{}-{}", server.name, server.region), server.url)
+    // 创建QuickMem配置
+    let quickmem_config = rat_quickmem::QuickMemConfig {
+        max_data_size: 64 * 1024 * 1024, // 64MB
+        max_batch_count: 10000,
+        pool_initial_capacity: 1024,
+        pool_max_capacity: 10240,
+        enable_parallel: true,
+    };
+    
+    // 创建带有预解析IP地址的DoH上游配置
+    let mut doh_spec = rat_quickdns::upstream_handler::UpstreamSpec::doh(
+        format!("{}-{}", server.name, server.region),
+        server.url.to_string()
+    );
+    
+    // 如果有预解析IP地址，则设置它
+    if let Some(resolved_ip) = server.resolved_ip {
+        doh_spec = doh_spec.with_resolved_ip(resolved_ip.to_string());
+    }
+    
+    let resolver = DnsResolverBuilder::new(
+        QueryStrategy::Smart,
+        true, // 启用EDNS
+        "global".to_string(), // 当前区域
+        quickmem_config,
+    )
+        .with_timeout(Duration::from_secs(5))  // 减少超时时间，实现快速失败
+        .with_retry_count(1)  // 减少重试次数，加快失败检测
+        .add_upstream(doh_spec)  // 使用带有预解析IP的上游配置
+        .map_err(|e| format!("添加DoH上游失败: {}", e))?
         .build()
         .await
         .map_err(|e| format!("构建DoH解析器失败: {}", e))?;
@@ -132,15 +167,16 @@ async fn test_mx_record_with_doh_server(
     match resolver.query(request).await {
         Ok(response) => {
             let duration = start.elapsed();
-            let mx_records: Vec<String> = if response.success {
-                 response.mx_records().into_iter().map(|(priority, exchange)| {
-                     format!("{}:{}", priority, exchange)
-                 }).collect()
-             } else {
-                 Vec::new()
-             };
-            
-            Ok((true, duration, mx_records))
+            if response.success {
+                let mx_records: Vec<String> = response.mx_records().into_iter().map(|(priority, exchange)| {
+                    format!("{}:{}", priority, exchange)
+                }).collect();
+                Ok((true, duration, mx_records))
+            } else {
+                // 查询失败，返回错误信息
+                let error_msg = response.error.unwrap_or_else(|| "未知错误".to_string());
+                Err(format!("DoH查询失败: {} (耗时: {:?})", error_msg, duration))
+            }
         }
         Err(e) => {
             let duration = start.elapsed();
@@ -165,6 +201,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for server in DOH_SERVERS {
         println!("🔒 测试DoH服务器: {} - {}", server.name, server.region);
         println!("   URL: {}", server.url);
+        if let Some(resolved_ip) = server.resolved_ip {
+            println!("   预解析IP: {} (避免DNS解析延迟)", resolved_ip);
+        } else {
+            println!("   预解析IP: 未设置 (将进行DNS解析)");
+        }
         println!("  状态 |           域名 |     耗时 | MX记录数 | 描述");
         println!("  ─────────────────────────────────────────────────────────────────");
         
@@ -252,16 +293,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("      - 加密传输，安全性高");
     println!("      - 可穿越防火墙和网络过滤");
     println!("      - 支持HTTP/2多路复用");
+    println!("      - 预解析IP地址，避免DNS解析延迟");
     println!("   ⚠️  注意事项:");
     println!("      - 首次连接需要TLS握手，延迟较高");
     println!("      - 需要HTTPS证书验证");
     println!("      - 某些网络环境可能阻止HTTPS DNS查询");
+    println!("      - 预解析IP需要定期更新以保持有效性");
     
     println!("\n💡 建议:");
     println!("   - DoH适合对隐私和安全要求高的场景");
     println!("   - 国内DoH服务器通常访问速度更快");
+    println!("   - 预解析IP地址可显著减少连接建立时间");
     println!("   - 如果MX查询失败，可能是DoH服务器策略限制");
     println!("   - 建议配合其他协议(UDP/DoT)使用以提高可靠性");
+    println!("   - 定期验证预解析IP地址的有效性");
     
     Ok(())
 }

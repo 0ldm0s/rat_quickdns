@@ -19,9 +19,9 @@ pub use strategy::QueryStrategy;
 pub use metrics::PerformanceMetrics;
 pub use engine::SmartDecisionEngine;
 pub use resolver_builder::DnsResolverBuilder;
-pub use resolver::EasyDnsResolver;
+pub use resolver::SmartDnsResolver;
 pub use types::*;
 
 // 为了向后兼容，保持原有的导出
 pub use resolver_builder::DnsResolverBuilder as Builder;
-pub use resolver::EasyDnsResolver as Resolver;
+pub use resolver::SmartDnsResolver as Resolver;

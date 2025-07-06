@@ -2,9 +2,11 @@
 //! 测试多个DNS服务器的MX记录查询能力
 
 use rat_quickdns::{
-    DnsResolverBuilder, RecordType, QueryStrategy,
+    builder::DnsResolverBuilder, RecordType, QueryStrategy,
+    upstream_handler::UpstreamSpec,
     logger::{init_dns_logger, info, debug, error, warn, trace},
 };
+use rat_quickmem::QuickMemConfig;
 use zerg_creep::logger::LevelFilter;
 use std::time::Duration;
 use tokio;
@@ -22,6 +24,7 @@ struct DnsServerConfig {
     address: &'static str,
     port: u16,
     region: &'static str,
+    resolved_ip: Option<&'static str>, // 预解析的IP地址，避免DNS解析延迟
 }
 
 const TEST_DOMAINS: &[MxTestCase] = &[
@@ -74,24 +77,28 @@ const DNS_SERVERS: &[DnsServerConfig] = &[
         address: "119.29.29.29",
         port: 53,
         region: "国内",
+        resolved_ip: Some("119.29.29.29"), // 腾讯DNS服务器IP
     },
     DnsServerConfig {
         name: "阿里DNS",
         address: "223.5.5.5",
         port: 53,
         region: "国内",
+        resolved_ip: Some("223.5.5.5"), // 阿里DNS服务器IP
     },
     DnsServerConfig {
         name: "百度DNS",
         address: "180.76.76.76",
         port: 53,
         region: "国内",
+        resolved_ip: Some("180.76.76.76"), // 百度DNS服务器IP
     },
     DnsServerConfig {
         name: "114DNS",
         address: "114.114.114.114",
         port: 53,
         region: "国内",
+        resolved_ip: Some("114.114.114.114"), // 114DNS服务器IP
     },
     // 国外DNS服务器
     DnsServerConfig {
@@ -99,24 +106,28 @@ const DNS_SERVERS: &[DnsServerConfig] = &[
         address: "1.1.1.1",
         port: 53,
         region: "国外",
+        resolved_ip: Some("1.1.1.1"), // Cloudflare DNS服务器IP
     },
     DnsServerConfig {
         name: "Google",
         address: "8.8.8.8",
         port: 53,
         region: "国外",
+        resolved_ip: Some("8.8.8.8"), // Google DNS服务器IP
     },
     DnsServerConfig {
         name: "Quad9",
         address: "9.9.9.9",
         port: 53,
         region: "国外",
+        resolved_ip: Some("9.9.9.9"), // Quad9 DNS服务器IP
     },
     DnsServerConfig {
         name: "OpenDNS",
         address: "208.67.222.222",
         port: 53,
         region: "国外",
+        resolved_ip: Some("208.67.222.222"), // OpenDNS服务器IP
     },
 ];
 
@@ -128,12 +139,37 @@ async fn test_mx_record_with_server(
     
     info!("🔍 开始查询: {} 通过 {}({})", test_case.domain, server.name, server.address);
     
-    let resolver = DnsResolverBuilder::new()
-        .query_strategy(QueryStrategy::Smart)
+    // 创建QuickMem配置
+    let quickmem_config = QuickMemConfig {
+        max_data_size: 64 * 1024 * 1024, // 64MB
+        max_batch_count: 10000,
+        pool_initial_capacity: 1024,
+        pool_max_capacity: 10240,
+        enable_parallel: true,
+    };
+    
+    // 创建带有预解析IP地址的UDP上游配置
+    let mut udp_spec = UpstreamSpec::udp(
+        format!("{}-{}", server.name, server.region),
+        format!("{}:{}", server.address, server.port)
+    );
+    
+    // 如果有预解析IP地址，则设置它
+    if let Some(resolved_ip) = server.resolved_ip {
+        udp_spec = udp_spec.with_resolved_ip(resolved_ip.to_string());
+    }
+    
+    let resolver = DnsResolverBuilder::new(
+        QueryStrategy::Smart,
+        true, // 启用EDNS
+        "global".to_string(), // 当前区域
+        quickmem_config,
+    )
         .with_timeout(Duration::from_secs(10))
         .with_retry_count(2)
         .with_verbose_logging()  // 启用详细日志
-        .add_udp_upstream(format!("{}-{}", server.name, server.region), format!("{}:{}", server.address, server.port))
+        .add_upstream(udp_spec)  // 使用带有预解析IP的上游配置
+        .map_err(|e| format!("添加UDP上游失败: {}", e))?
         .build()
         .await
         .map_err(|e| {
@@ -159,27 +195,29 @@ async fn test_mx_record_with_server(
             debug!("📊 响应状态: success={}, records_count={}", response.success, response.records.len());
             trace!("📄 完整响应: {:?}", response);
             
-            let mx_records: Vec<String> = if response.success {
+            if response.success {
                 let mx_list = response.mx_records();
                 debug!("📧 提取到 {} 条MX记录: {:?}", mx_list.len(), mx_list);
                 
-                mx_list.into_iter().map(|(priority, exchange)| {
+                let mx_records: Vec<String> = mx_list.into_iter().map(|(priority, exchange)| {
                     let record_str = format!("{}:{}", priority, exchange);
                     trace!("📧 MX记录格式化: {} -> {}", exchange, record_str);
                     record_str
-                }).collect()
+                }).collect();
+                
+                if mx_records.is_empty() {
+                    warn!("⚠️ 未找到MX记录: {}", test_case.domain);
+                } else {
+                    info!("✅ 成功获取 {} 条MX记录", mx_records.len());
+                }
+                
+                Ok((true, duration, mx_records))
             } else {
                 warn!("⚠️ DNS查询成功但响应标记为失败");
-                Vec::new()
-            };
-            
-            if mx_records.is_empty() {
-                warn!("⚠️ 未找到MX记录: {}", test_case.domain);
-            } else {
-                info!("✅ 成功获取 {} 条MX记录", mx_records.len());
+                // 查询失败，返回错误信息
+                let error_msg = response.error.unwrap_or_else(|| "未知错误".to_string());
+                Err(format!("UDP查询失败: {} (耗时: {:?})", error_msg, duration))
             }
-            
-            Ok((true, duration, mx_records))
         }
         Err(e) => {
             let duration = start.elapsed();
@@ -212,6 +250,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for server in DNS_SERVERS {
         println!("📡 测试DNS服务器: {} ({}) - {}", 
                  server.name, server.address, server.region);
+        if let Some(resolved_ip) = server.resolved_ip {
+            println!("   预解析IP: {} (避免DNS解析延迟)", resolved_ip);
+        } else {
+            println!("   预解析IP: 未设置 (将进行DNS解析)");
+        }
         println!("  状态 |           域名 |     耗时 | MX记录数 | 描述");
         println!("  ─────────────────────────────────────────────────────────────────");
         
@@ -293,11 +336,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
+    // 性能分析
+    println!("\n🔍 UDP协议特点分析:");
+    println!("   ✅ 优势:");
+    println!("      - 无连接协议，查询速度快");
+    println!("      - 网络开销小，适合高频查询");
+    println!("      - 支持并发查询，性能优异");
+    println!("      - 预解析IP地址，避免DNS解析延迟");
+    println!("   ⚠️  注意事项:");
+    println!("      - 可能受到网络丢包影响");
+    println!("      - 某些网络环境可能限制UDP流量");
+    println!("      - 预解析IP需要定期更新以保持有效性");
+    
     println!("\n💡 建议:");
-    println!("   - 如果国内DNS服务器MX查询成功率低，可能是网络策略限制");
-    println!("   - 如果国外DNS服务器查询失败，可能是网络连接问题");
-    println!("   - 建议优先使用成功率高的DNS服务器进行MX记录查询");
-    println!("   - UDP协议查询速度快，但可能受到网络环境影响");
+    println!("   1. 如果国内DNS服务器MX查询成功率低，可能是网络策略限制");
+    println!("   2. 如果国外DNS服务器查询失败，可能是网络连接问题");
+    println!("   3. 建议优先使用成功率高的DNS服务器进行MX记录查询");
+    println!("   4. UDP协议查询速度快，但可能受到网络环境影响");
+    println!("   5. 使用预解析IP地址可减少连接建立时间，但需定期验证有效性");
     
     Ok(())
 }

@@ -1,7 +1,7 @@
 //! 智能DNS解析器
 
 use crate::{Request, Response, Result, DnsError};
-use crate::types::{Query, RecordType, QClass, Flags, ClientSubnet};
+use crate::types::{Query, RecordType, QClass, Flags, ClientAddress};
 use crate::transport::{Transport, UdpTransport, TcpTransport, TlsTransport, HttpsTransport};
 use crate::transport::{TransportConfig, TlsConfig, HttpsConfig};
 use std::fmt::Debug;
@@ -10,39 +10,48 @@ use std::time::{Duration, Instant};
 use std::net::IpAddr;
 use tokio::time::timeout;
 use std::collections::HashMap;
-use crate::{dns_debug, dns_info, dns_error, dns_transport};
+use crate::{dns_debug, dns_info, dns_error, dns_transport, dns_warn};
 
-pub mod strategy;
 pub mod cache;
 pub mod health;
 
-use strategy::QueryStrategy;
-use strategy::QueryResult;
+use crate::builder::strategy::QueryStrategy;
 use cache::DnsCache;
-use health::HealthChecker;
+use health::UpstreamMonitor;
+
+/// 查询结果
+#[derive(Debug, Clone)]
+pub struct QueryResult {
+    /// 查询响应
+    pub response: Result<Response>,
+    /// 查询耗时
+    pub duration: Duration,
+    /// 传输类型
+    pub transport_type: String,
+}
 
 /// 智能DNS解析器
 #[derive(Debug, Clone)]
-pub struct Resolver {
+pub struct CoreResolver {
     /// 传输层实例
     transports: Vec<Arc<dyn Transport + Send + Sync + 'static>>,
     /// 查询策略
     strategy: QueryStrategy,
     /// DNS缓存
     cache: Option<Arc<DnsCache>>,
-    /// 健康检查器
-    health_checker: Option<Arc<HealthChecker>>,
+    /// 上游监控器
+    upstream_monitor: Option<Arc<UpstreamMonitor>>,
     /// 默认超时时间
     default_timeout: Duration,
     /// 重试次数
     retry_count: usize,
-    /// 默认客户端子网信息
-    default_client_subnet: Option<ClientSubnet>,
+    /// 默认客户端地址信息
+    default_client_address: Option<ClientAddress>,
 }
 
 /// 解析器配置
 #[derive(Debug, Clone)]
-pub struct ResolverConfig {
+pub struct CoreResolverConfig {
     /// 查询策略
     pub strategy: QueryStrategy,
     /// 默认超时时间
@@ -53,12 +62,12 @@ pub struct ResolverConfig {
     pub enable_cache: bool,
     /// 缓存TTL上限
     pub max_cache_ttl: Duration,
-    /// 是否启用健康检查
-    pub enable_health_check: bool,
-    /// 健康检查间隔
-    pub health_check_interval: Duration,
-    /// 默认客户端子网信息
-    pub default_client_subnet: Option<ClientSubnet>,
+    /// 是否启用上游监控
+    pub enable_upstream_monitoring: bool,
+    /// 上游监控间隔
+    pub upstream_monitoring_interval: Duration,
+    /// 默认客户端地址信息
+    pub default_client_address: Option<ClientAddress>,
     /// DNS服务器端口
     pub port: u16,
     /// 并发查询数量
@@ -67,44 +76,81 @@ pub struct ResolverConfig {
     pub recursion_desired: bool,
     /// 查询缓冲区大小
     pub buffer_size: usize,
+    /// 是否启用统计
+    pub enable_stats: bool,
     /// 日志级别
     pub log_level: zerg_creep::logger::LevelFilter,
     /// 是否启用DNS专用日志格式
     pub enable_dns_log_format: bool,
 }
 
-impl Default for ResolverConfig {
-    fn default() -> Self {
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认值（如 Smart策略、5秒超时、2次重试等）是兜底代码
+// 这些"贴心"的默认值实际上掩盖了配置问题，用户现在必须明确配置所有参数
+//
+// 迁移到严格配置模式：
+// 旧代码: CoreResolverConfig::default()
+// 新代码: 使用 StrictDnsConfig::builder() 明确配置所有参数
+
+impl CoreResolverConfig {
+    /// 创建新的配置（需要明确指定所有参数）
+    pub fn new(
+        strategy: QueryStrategy,
+        default_timeout: Duration,
+        retry_count: usize,
+        enable_cache: bool,
+        max_cache_ttl: Duration,
+        enable_upstream_monitoring: bool,
+        upstream_monitoring_interval: Duration,
+        port: u16,
+        concurrent_queries: usize,
+        recursion_desired: bool,
+        buffer_size: usize,
+        enable_stats: bool,
+        log_level: zerg_creep::logger::LevelFilter,
+        enable_dns_log_format: bool,
+    ) -> Self {
         Self {
-            strategy: QueryStrategy::FastestFirst,
-            default_timeout: Duration::from_secs(5),
-            retry_count: 2,
-            enable_cache: true,
-            max_cache_ttl: Duration::from_secs(3600),
-            enable_health_check: true,
-            health_check_interval: Duration::from_secs(30),
-            default_client_subnet: None,
-            port: 53,
-            concurrent_queries: 10,
-            recursion_desired: true,
-            buffer_size: 4096,
-            log_level: zerg_creep::logger::LevelFilter::Off,
-            enable_dns_log_format: true,
+            strategy,
+            default_timeout,
+            retry_count,
+            enable_cache,
+            max_cache_ttl,
+            enable_upstream_monitoring,
+            upstream_monitoring_interval,
+            default_client_address: None, // 客户端地址需要单独设置
+            port,
+            concurrent_queries,
+            recursion_desired,
+            buffer_size,
+            enable_stats,
+            log_level,
+            enable_dns_log_format,
         }
     }
 }
 
-impl Resolver {
+impl CoreResolver {
     /// 创建新的解析器
-    pub fn new(config: ResolverConfig) -> Self {
+    pub fn new(config: CoreResolverConfig) -> Self {
         let cache = if config.enable_cache {
             Some(Arc::new(DnsCache::new(config.max_cache_ttl)))
         } else {
             None
         };
         
-        let health_checker = if config.enable_health_check {
-            Some(Arc::new(HealthChecker::new(config.health_check_interval)))
+        let upstream_monitor = if config.enable_upstream_monitoring {
+            Some(Arc::new(UpstreamMonitor::with_config(
+                config.upstream_monitoring_interval,
+                health::UpstreamConfig {
+                    min_success_rate: 0.7,
+                    max_avg_response_time: std::time::Duration::from_secs(5),
+                    max_consecutive_failures: 3,
+                    recovery_success_count: 2,
+                    stats_window_size: 100,
+                    max_unavailable_duration: std::time::Duration::from_secs(300),
+                }
+            )))
         } else {
             None
         };
@@ -113,17 +159,15 @@ impl Resolver {
             transports: Vec::new(),
             strategy: config.strategy,
             cache,
-            health_checker,
+            upstream_monitor,
             default_timeout: config.default_timeout,
             retry_count: config.retry_count,
-            default_client_subnet: config.default_client_subnet,
+            default_client_address: config.default_client_address,
         }
     }
     
-    /// 使用默认配置创建解析器
-    pub fn default() -> Self {
-        Self::new(ResolverConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供配置，不能依赖隐式默认值
     
     /// 添加UDP传输
     pub fn add_udp_transport(&mut self, config: TransportConfig) {
@@ -142,15 +186,21 @@ impl Resolver {
     
     /// 添加TLS传输
     pub fn add_tls_transport(&mut self, config: TlsConfig) -> Result<()> {
+        dns_info!("🔒 添加DoT传输: {}:{}", config.base.server, config.base.port);
         let transport = Arc::new(TlsTransport::new(config)?);
-        self.transports.push(transport);
+        self.transports.push(transport.clone());
+        dns_info!("🔒 DoT传输已添加，当前传输总数: {}", self.transports.len());
+        dns_debug!("新添加的传输类型: {}", transport.transport_type());
         Ok(())
     }
     
     /// 添加HTTPS传输
     pub fn add_https_transport(&mut self, config: HttpsConfig) -> Result<()> {
+        dns_info!("🌐 添加DoH传输: {}", config.url);
         let transport = Arc::new(HttpsTransport::new(config)?);
-        self.transports.push(transport);
+        self.transports.push(transport.clone());
+        dns_info!("🌐 DoH传输已添加，当前传输总数: {}", self.transports.len());
+        dns_debug!("新添加的传输类型: {}", transport.transport_type());
         Ok(())
     }
     
@@ -177,9 +227,9 @@ impl Resolver {
         class: QClass,
         client_ip: Option<IpAddr>,
     ) -> Result<Response> {
-        let client_subnet = client_ip.map(|ip| match ip {
-            IpAddr::V4(addr) => ClientSubnet::from_ipv4(addr, 24),
-            IpAddr::V6(addr) => ClientSubnet::from_ipv6(addr, 56),
+        let client_address = client_ip.map(|ip| match ip {
+            IpAddr::V4(addr) => ClientAddress::from_ipv4(addr, 24),
+            IpAddr::V6(addr) => ClientAddress::from_ipv6(addr, 56),
         });
         
         let query = Query {
@@ -200,7 +250,7 @@ impl Resolver {
             id: rand::random(),
             flags: Flags::default(),
             query: query.clone(),
-            client_subnet: client_subnet.or_else(|| self.default_client_subnet.clone()),
+            client_address: client_address.or_else(|| self.default_client_address.clone()),
         };
         
         // 执行查询策略
@@ -214,16 +264,16 @@ impl Resolver {
         Ok(response)
     }
     
-    /// 设置默认客户端子网
-    pub fn set_default_client_subnet(&mut self, client_subnet: Option<ClientSubnet>) {
-        self.default_client_subnet = client_subnet;
+    /// 设置默认客户端地址
+    pub fn set_default_client_address(&mut self, client_address: Option<ClientAddress>) {
+        self.default_client_address = client_address;
     }
     
     /// 设置默认客户端IP（便捷方法）
     pub fn set_default_client_ip(&mut self, client_ip: Option<IpAddr>) {
-        self.default_client_subnet = client_ip.map(|ip| match ip {
-            IpAddr::V4(addr) => ClientSubnet::from_ipv4(addr, 24),
-            IpAddr::V6(addr) => ClientSubnet::from_ipv6(addr, 56),
+        self.default_client_address = client_ip.map(|ip| match ip {
+            IpAddr::V4(addr) => ClientAddress::from_ipv4(addr, 24),
+            IpAddr::V6(addr) => ClientAddress::from_ipv6(addr, 56),
         });
     }
     
@@ -233,11 +283,18 @@ impl Resolver {
             return Err(DnsError::Config("No transports configured".to_string()));
         }
         
+        dns_info!("🔍 开始DNS查询: {} (类型: {:?}), 策略: {:?}, 可用传输: {}", 
+                 request.query.name, request.query.qtype, self.strategy, self.transports.len());
+        
+        // 打印所有可用传输的类型
+        for (i, transport) in self.transports.iter().enumerate() {
+            dns_debug!("传输[{}]: {}", i, transport.transport_type());
+        }
+        
         match self.strategy {
-            QueryStrategy::FastestFirst => self.query_fastest_first(request).await,
-            QueryStrategy::Parallel => self.query_parallel(request).await,
-            QueryStrategy::Sequential => self.query_sequential(request).await,
-            QueryStrategy::SmartDecision => self.query_smart_decision(request).await,
+            QueryStrategy::Fifo => self.query_fastest_first(request).await,
+            QueryStrategy::Smart => self.query_smart_decision(request).await,
+            QueryStrategy::RoundRobin => self.query_parallel(request).await,
         }
     }
     
@@ -246,10 +303,15 @@ impl Resolver {
         use tokio::sync::{oneshot, broadcast};
         
         // 获取健康的传输实例
-        let healthy_transports = self.get_healthy_transports();
+        let available_transports = self.get_available_transports();
         
-        if healthy_transports.is_empty() {
-            return Err(DnsError::Server("No healthy transports available".to_string()));
+        if available_transports.is_empty() {
+            return Err(DnsError::Server("No available transports".to_string()));
+        }
+        
+        dns_info!("⚡ 使用最快优先策略，并发查询 {} 个传输", available_transports.len());
+        for (i, transport) in available_transports.iter().enumerate() {
+            dns_debug!("并发传输[{}]: {}", i, transport.transport_type());
         }
         
         // 创建取消通道，用于在获得第一个成功响应后取消其他任务
@@ -261,29 +323,31 @@ impl Resolver {
         // 并发查询所有传输
         let mut tasks = Vec::new();
         
-        for transport in healthy_transports {
+        for transport in available_transports {
             let transport_clone = Arc::clone(&transport);
             let request_clone = request.clone();
             let mut cancel_rx = cancel_tx.subscribe();
             let success_tx_clone = success_tx.clone();
             let cancel_tx_clone = cancel_tx.clone();
-            let health_checker = self.health_checker.clone();
+            let upstream_monitor = self.upstream_monitor.clone();
             
             let task = tokio::spawn(async move {
                 let start = Instant::now();
+                let transport_type = transport_clone.transport_type();
+                dns_debug!("🚀 开始使用 {} 传输查询", transport_type);
                 
                 // 使用select!来同时监听取消信号和DNS查询
                 tokio::select! {
                     // DNS查询结果
                     result = transport_clone.send(&request_clone) => {
                         let duration = start.elapsed();
-                        let transport_type = transport_clone.transport_type();
                         
                         match result {
                             Ok(response) => {
+                                dns_info!("✅ {} 传输查询成功 (耗时: {:?}ms)", transport_type, duration.as_millis());
                                 // 记录成功统计
-                                if let Some(health_checker) = &health_checker {
-                                    health_checker.record_success(transport_type, duration);
+                                if let Some(upstream_monitor) = &upstream_monitor {
+                                    upstream_monitor.record_success(transport_type, duration);
                                 }
                                 
                                 // 尝试发送成功结果（只有第一个成功的会被接收）
@@ -296,9 +360,10 @@ impl Resolver {
                                 }
                             }
                             Err(e) => {
+                                dns_debug!("❌ {} 传输查询失败: {} (耗时: {:?}ms)", transport_type, e, duration.as_millis());
                                 // 记录失败统计
-                                if let Some(health_checker) = &health_checker {
-                                    health_checker.record_failure(transport_type);
+                                if let Some(upstream_monitor) = &upstream_monitor {
+                                    upstream_monitor.record_failure(transport_type);
                                 }
                                 // 失败不取消其他任务，继续等待
                             }
@@ -360,15 +425,15 @@ impl Resolver {
     
     /// 并行查询策略
     async fn query_parallel(&self, request: &Request) -> Result<Response> {
-        let healthy_transports = self.get_healthy_transports();
+        let available_transports = self.get_available_transports();
         
-        if healthy_transports.is_empty() {
-            return Err(DnsError::Server("No healthy transports available".to_string()));
+        if available_transports.is_empty() {
+            return Err(DnsError::Server("No available transports".to_string()));
         }
         
         let mut tasks = Vec::new();
         
-        for transport in healthy_transports {
+        for transport in available_transports {
             let transport_clone = Arc::clone(&transport);
             let request_clone = request.clone();
             
@@ -394,15 +459,15 @@ impl Resolver {
     
     /// 顺序查询策略
     async fn query_sequential(&self, request: &Request) -> Result<Response> {
-        let healthy_transports = self.get_healthy_transports();
+        let available_transports = self.get_available_transports();
         
-        if healthy_transports.is_empty() {
-            return Err(DnsError::Server("No healthy transports available".to_string()));
+        if available_transports.is_empty() {
+            return Err(DnsError::Server("No available transports".to_string()));
         }
         
         let mut last_error = DnsError::Server("No transports tried".to_string());
         
-        for transport in healthy_transports {
+        for transport in available_transports {
             for attempt in 0..=self.retry_count {
                 match transport.send(request).await {
                     Ok(response) => return Ok(response),
@@ -422,26 +487,29 @@ impl Resolver {
     /// 智能决策策略
     async fn query_smart_decision(&self, request: &Request) -> Result<Response> {
         // 智能决策：结合速度、可靠性和结果完整性
-        let healthy_transports = self.get_healthy_transports();
+        let available_transports = self.get_available_transports();
         
-        if healthy_transports.is_empty() {
-            return Err(DnsError::Server("No healthy transports available".to_string()));
+        if available_transports.is_empty() {
+            return Err(DnsError::Server("No available transports".to_string()));
         }
         
         let mut tasks = Vec::new();
         
-        for transport in healthy_transports {
-            let transport_clone = Arc::clone(&transport);
+        for (index, transport) in available_transports.iter().enumerate() {
+            let transport_clone = Arc::clone(transport);
             let request_clone = request.clone();
             
             let task = tokio::spawn(async move {
                 let start = Instant::now();
+                let transport_type = transport_clone.transport_type();
+                
                 let result = transport_clone.send(&request_clone).await;
                 let duration = start.elapsed();
+                
                 QueryResult {
                     response: result,
                     duration,
-                    transport_type: transport_clone.transport_type().to_string(),
+                    transport_type: transport_type.to_string(),
                 }
             });
             
@@ -475,12 +543,28 @@ impl Resolver {
                         results.push(query_result);
                     }
                 }
-                Err(_) => break, // 超时
+                Err(_) => {
+                    break; // 超时
+                }
             }
         }
         
         // 智能选择最佳结果
-        self.select_best_result(results, fastest_response)
+        let final_result = self.select_best_result(results, fastest_response);
+        
+        // 记录最终选择的策略结果
+        match &final_result {
+            Ok(response) => {
+                dns_info!("🧠 Smart策略: 最终选择成功 - 答案数: {}, 查询: {}", 
+                         response.answers.len(), request.query.name);
+            }
+            Err(e) => {
+                dns_warn!("🧠 Smart策略: 所有传输均失败 - 错误: {}, 查询: {}", 
+                         e, request.query.name);
+            }
+        }
+        
+        final_result
     }
     
     /// 选择最佳查询结果
@@ -501,8 +585,10 @@ impl Resolver {
         let mut best_response: Option<Response> = None;
         let mut best_score = -1i32;
         let mut best_duration = Duration::from_secs(u64::MAX);
+        let mut best_transport_type = String::new();
         
-        for result in &results {
+        // 分析每个结果
+        for result in results.iter() {
             if let Ok(response) = &result.response {
                 let score = response.answers.len() as i32;
                 
@@ -511,12 +597,15 @@ impl Resolver {
                     best_score = score;
                     best_duration = result.duration;
                     best_response = Some(response.clone());
+                    best_transport_type = result.transport_type.clone();
                 }
             }
         }
         
         // 如果有完整结果，返回最佳结果
         if let Some(response) = best_response {
+            dns_info!("🎯 Smart策略: 选择最佳结果 - 传输: {}, 答案数: {}, 耗时: {:?}ms", 
+                     best_transport_type, best_score, best_duration.as_millis());
             return Ok(response);
         }
         
@@ -535,43 +624,34 @@ impl Resolver {
         Err(DnsError::Server("No valid results".to_string()))
     }
     
-    /// 获取健康的传输实例
-    fn get_healthy_transports(&self) -> Vec<Arc<dyn Transport + Send + Sync + 'static>> {
-        dns_debug!("开始获取健康的传输实例");
-        dns_debug!("总传输数量: {}", self.transports.len());
-        
-        for (i, transport) in self.transports.iter().enumerate() {
-            dns_debug!("传输 {}: 类型={}", i, transport.transport_type());
-        }
-        
-        if let Some(health_checker) = &self.health_checker {
-            dns_debug!("使用健康检查器过滤传输");
-            let healthy_transports: Vec<_> = self.transports
+    /// 获取可用的传输实例
+    fn get_available_transports(&self) -> Vec<Arc<dyn Transport + Send + Sync + 'static>> {
+        if let Some(upstream_monitor) = &self.upstream_monitor {
+            self.transports
                 .iter()
-                .enumerate()
-                .filter(|(i, t)| {
-                    let is_healthy = health_checker.is_transport_healthy(t.transport_type());
-                    dns_debug!("传输 {} ({}): 健康状态={}", i, t.transport_type(), is_healthy);
-                    is_healthy
+                .filter(|t| {
+                    let transport_type = t.transport_type();
+                    upstream_monitor.is_transport_available(transport_type)
                 })
-                .map(|(_, t)| t.clone())
-                .collect();
-            
-            dns_debug!("健康传输数量: {}", healthy_transports.len());
-            healthy_transports
+                .cloned()
+                .collect()
         } else {
-            dns_debug!("未启用健康检查，返回所有传输");
             self.transports.clone()
         }
     }
     
     /// 获取传输统计信息
     pub fn get_transport_stats(&self) -> HashMap<String, (u64, u64, Duration)> {
-        if let Some(health_checker) = &self.health_checker {
-            health_checker.get_stats()
+        if let Some(upstream_monitor) = &self.upstream_monitor {
+            upstream_monitor.get_stats()
         } else {
             HashMap::new()
         }
+    }
+    
+    /// 获取传输数量
+    pub fn transport_count(&self) -> usize {
+        self.transports.len()
     }
     
     /// 清空缓存

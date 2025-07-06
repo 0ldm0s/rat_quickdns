@@ -10,8 +10,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use std::sync::{Arc, Mutex};
 use crate::{dns_debug, dns_info, dns_error, dns_transport};
-
-#[cfg(feature = "tokio-rustls")]
 use tokio_rustls::{TlsConnector, rustls::{ClientConfig, ServerName}};
 /// TLS传输实现
 pub struct TlsTransport {
@@ -30,7 +28,6 @@ impl std::fmt::Debug for TlsTransport {
 
 impl TlsTransport {
     /// 创建新的TLS传输
-    #[cfg(feature = "tokio-rustls")]
     pub fn new(config: TlsConfig) -> Result<Self> {
         let mut client_config = ClientConfig::builder()
             .with_safe_defaults()
@@ -50,19 +47,25 @@ impl TlsTransport {
         })
     }
     
-    /// 创建不验证证书的TLS传输(仅用于测试)
-    #[cfg(not(feature = "tokio-rustls"))]
-    pub fn new(_config: TlsConfig) -> Result<Self> {
-        Err(DnsError::Config("TLS support requires 'tokio-rustls' feature".to_string()))
-    }
-    
-    /// 使用默认配置创建TLS传输
-    pub fn default() -> Result<Self> {
-        Self::new(TlsConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供 TlsConfig，不能依赖隐式默认值
+    // 
+    // 迁移示例：
+    // 旧代码: TlsTransport::default()
+    // 新代码: TlsTransport::new(TlsConfig {
+    //     base: TransportConfig {
+    //         server: "your-dns-server.com".to_string(),
+    //         port: 853,
+    //         timeout: Duration::from_secs(5),
+    //         tcp_fast_open: false,
+    //         tcp_nodelay: true,
+    //         pool_size: 10,
+    //     },
+    //     server_name: "your-dns-server.com".to_string(),
+    //     verify_cert: true,
+    // })
     
     /// 加载根证书
-    #[cfg(feature = "tokio-rustls")]
     fn load_root_certs() -> Result<tokio_rustls::rustls::RootCertStore> {
         let mut root_store = tokio_rustls::rustls::RootCertStore::empty();
         
@@ -97,7 +100,6 @@ impl TlsTransport {
     }
     
     /// 从TCP流读取完整的DNS响应
-    #[cfg(feature = "tokio-rustls")]
     async fn read_tls_response(
         stream: &mut tokio_rustls::client::TlsStream<TcpStream>
     ) -> Result<Vec<u8>> {
@@ -137,12 +139,13 @@ impl TlsTransport {
     }
 }
 
-#[cfg(feature = "tokio-rustls")]
 #[async_trait]
 impl Transport for TlsTransport {
     async fn send(&self, request: &Request) -> Result<Response> {
+        use crate::{dns_debug, dns_info};
         let (server_addr, timeout_duration, server_name) = {
             let config = self.config.lock().unwrap();
+            dns_info!("🔒 DoT请求开始: {} -> {}:{}", request.query.name, config.base.server, config.base.port);
             (
                 format!("{}:{}", config.base.server, config.base.port),
                 config.base.timeout,
@@ -235,33 +238,11 @@ impl Transport for TlsTransport {
     }
 }
 
-#[cfg(not(feature = "tokio-rustls"))]
-#[async_trait]
-impl Transport for TlsTransport {
-    async fn send(&self, _request: &Request) -> Result<Response> {
-        Err(DnsError::Config("TLS support requires 'tokio-rustls' feature".to_string()))
-    }
-    
-    fn transport_type(&self) -> &'static str {
-        "TLS (disabled)"
-    }
-    
-    fn set_timeout(&mut self, timeout: Duration) {
-        if let Ok(mut config) = self.config.lock() {
-            config.base.timeout = timeout;
-        }
-    }
-    
-    fn timeout(&self) -> Duration {
-        self.config.lock().unwrap().base.timeout
-    }
-}
+
 
 /// 不验证证书的验证器(仅用于测试)
-#[cfg(feature = "tokio-rustls")]
 struct NoVerifier;
 
-#[cfg(feature = "tokio-rustls")]
 impl tokio_rustls::rustls::client::ServerCertVerifier for NoVerifier {
     fn verify_server_cert(
         &self,

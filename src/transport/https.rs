@@ -7,23 +7,32 @@ use async_trait::async_trait;
 use std::time::Duration;
 use tokio::time::timeout;
 
-#[cfg(feature = "reqwest")]
 use reqwest::{Client, Method};
 
 /// HTTPS传输实现
 #[derive(Debug)]
 pub struct HttpsTransport {
     config: HttpsConfig,
-    #[cfg(feature = "reqwest")]
     client: Client,
 }
 
 impl HttpsTransport {
     /// 创建新的HTTPS传输
-    #[cfg(feature = "reqwest")]
     pub fn new(config: HttpsConfig) -> Result<Self> {
+        // 设置连接超时为总超时的1/3，最小2秒，最大5秒
+        let connect_timeout = std::cmp::min(
+            std::cmp::max(
+                config.base.timeout / 3,
+                Duration::from_secs(2)
+            ),
+            Duration::from_secs(5)
+        );
+        
         let client = Client::builder()
-            .timeout(config.base.timeout)
+            .timeout(config.base.timeout)  // 总体超时
+            .connect_timeout(connect_timeout)  // 连接超时，实现快速失败
+            .tcp_keepalive(Duration::from_secs(30))  // TCP保活
+            .tcp_nodelay(config.base.tcp_nodelay)  // TCP无延迟
             .user_agent(&config.user_agent)
             .build()
             .map_err(|e| DnsError::Http(format!("Failed to create HTTP client: {}", e)))?;
@@ -34,18 +43,26 @@ impl HttpsTransport {
         })
     }
     
-    #[cfg(not(feature = "reqwest"))]
-    pub fn new(_config: HttpsConfig) -> Result<Self> {
-        Err(DnsError::Config("HTTPS support requires 'reqwest' feature".to_string()))
-    }
-    
-    /// 使用默认配置创建HTTPS传输
-    pub fn default() -> Result<Self> {
-        Self::new(HttpsConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供 HttpsConfig，不能依赖隐式默认值
+    // 
+    // 迁移示例：
+    // 旧代码: HttpsTransport::default()
+    // 新代码: HttpsTransport::new(HttpsConfig {
+    //     base: TransportConfig {
+    //         server: "cloudflare-dns.com".to_string(),
+    //         port: 443,
+    //         timeout: Duration::from_secs(5),
+    //         tcp_fast_open: false,
+    //         tcp_nodelay: true,
+    //         pool_size: 10,
+    //     },
+    //     url: "https://cloudflare-dns.com/dns-query".to_string(),
+    //     method: HttpMethod::POST,
+    //     user_agent: "RatQuickDNS/0.1.0".to_string(),
+    // })
     
     /// 将DNS请求编码为base64url格式(用于GET方法)
-    #[cfg(feature = "reqwest")]
     fn encode_dns_query_base64url(request: &Request) -> Result<String> {
         use base64::{Engine as _, engine::general_purpose};
         let dns_data = UdpTransport::serialize_request(request)?;
@@ -53,8 +70,9 @@ impl HttpsTransport {
     }
     
     /// 发送GET请求
-    #[cfg(feature = "reqwest")]
     async fn send_get_request(&self, request: &Request) -> Result<Response> {
+        use crate::{dns_debug, dns_info};
+        dns_info!("🌐 DoH GET请求开始: {} -> {}", request.query.name, self.config.url);
         let dns_query = Self::encode_dns_query_base64url(request)?;
         
         let response = timeout(
@@ -99,7 +117,7 @@ impl HttpsTransport {
         ).await;
         
         let body = match body_result {
-            Ok(Ok(bytes)) => bytes,
+            Ok(Ok(bytes)) => bytes.to_vec(),
             Ok(Err(e)) => return Err(DnsError::Http(format!("Failed to read response body: {}", e))),
             Err(_) => return Err(DnsError::Timeout),
         };
@@ -108,8 +126,9 @@ impl HttpsTransport {
     }
     
     /// 发送POST请求
-    #[cfg(feature = "reqwest")]
     async fn send_post_request(&self, request: &Request) -> Result<Response> {
+        use crate::{dns_debug, dns_info};
+        dns_info!("🌐 DoH POST请求开始: {} -> {}", request.query.name, self.config.url);
         let dns_data = UdpTransport::serialize_request(request)?;
         
         let response = timeout(
@@ -155,7 +174,7 @@ impl HttpsTransport {
         ).await;
         
         let body = match body_result {
-            Ok(Ok(bytes)) => bytes,
+            Ok(Ok(bytes)) => bytes.to_vec(),
             Ok(Err(e)) => return Err(DnsError::Http(format!("Failed to read response body: {}", e))),
             Err(_) => return Err(DnsError::Timeout),
         };
@@ -164,7 +183,6 @@ impl HttpsTransport {
     }
 }
 
-#[cfg(feature = "reqwest")]
 #[async_trait]
 impl Transport for HttpsTransport {
     async fn send(&self, request: &Request) -> Result<Response> {
@@ -189,61 +207,24 @@ impl Transport for HttpsTransport {
     }
 }
 
-#[cfg(not(feature = "reqwest"))]
-#[async_trait]
-impl Transport for HttpsTransport {
-    async fn send(&self, _request: &Request) -> Result<Response> {
-        Err(DnsError::Config("HTTPS support requires 'reqwest' feature".to_string()))
-    }
-    
-    fn transport_type(&self) -> &'static str {
-        "HTTPS (disabled)"
-    }
-    
-    fn set_timeout(&mut self, timeout: Duration) {
-        self.config.base.timeout = timeout;
-    }
-    
-    fn timeout(&self) -> Duration {
-        self.config.base.timeout
-    }
-}
 
-/// 常用的DoH服务器配置
-impl HttpsConfig {
-    /// Cloudflare DoH配置
-    pub fn cloudflare() -> Self {
-        Self {
-            url: "https://cloudflare-dns.com/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-    
-    /// Google DoH配置
-    pub fn google() -> Self {
-        Self {
-            url: "https://dns.google/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-    
-    /// Quad9 DoH配置
-    pub fn quad9() -> Self {
-        Self {
-            url: "https://dns.quad9.net/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-    
-    /// OpenDNS DoH配置
-    pub fn opendns() -> Self {
-        Self {
-            url: "https://doh.opendns.com/dns-query".to_string(),
-            method: HttpMethod::POST,
-            ..Default::default()
-        }
-    }
-}
+
+// 注意：移除了便捷配置方法，因为它们依赖兜底行为
+// 硬编码的默认值（如 cloudflare 服务器、POST方法）是兜底代码
+// 用户现在必须明确配置所有HTTPS参数
+//
+// 迁移示例：
+// 旧代码: HttpsConfig::cloudflare()
+// 新代码: HttpsConfig {
+//     base: TransportConfig {
+//         server: "cloudflare-dns.com".to_string(),
+//         port: 443,
+//         timeout: Duration::from_secs(5),
+//         tcp_fast_open: false,
+//         tcp_nodelay: true,
+//         pool_size: 10,
+//     },
+//     url: "https://cloudflare-dns.com/dns-query".to_string(),
+//     method: HttpMethod::POST,
+//     user_agent: get_user_agent(),
+// }

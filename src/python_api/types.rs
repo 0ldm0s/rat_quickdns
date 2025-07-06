@@ -197,6 +197,16 @@ pub enum PyDnsRecordType {
     SOA,
     /// SRV记录 - 服务记录
     SRV,
+    /// RRSIG记录 - 资源记录签名
+    RRSIG,
+    /// DNSKEY记录 - DNS公钥
+    DNSKEY,
+    /// DS记录 - 委托签名者
+    DS,
+    /// NSEC记录 - 下一个安全记录
+    NSEC,
+    /// NSEC3记录 - 下一个安全记录版本3
+    NSEC3,
 }
 
 /// Python绑定的失败服务器信息
@@ -317,6 +327,11 @@ impl PyDnsRecordType {
             PyDnsRecordType::PTR => "PTR".to_string(),
             PyDnsRecordType::SOA => "SOA".to_string(),
             PyDnsRecordType::SRV => "SRV".to_string(),
+            PyDnsRecordType::RRSIG => "RRSIG".to_string(),
+            PyDnsRecordType::DNSKEY => "DNSKEY".to_string(),
+            PyDnsRecordType::DS => "DS".to_string(),
+            PyDnsRecordType::NSEC => "NSEC".to_string(),
+            PyDnsRecordType::NSEC3 => "NSEC3".to_string(),
         }
     }
     
@@ -333,6 +348,11 @@ impl PyDnsRecordType {
             "PTR" => Ok(PyDnsRecordType::PTR),
             "SOA" => Ok(PyDnsRecordType::SOA),
             "SRV" => Ok(PyDnsRecordType::SRV),
+            "RRSIG" => Ok(PyDnsRecordType::RRSIG),
+            "DNSKEY" => Ok(PyDnsRecordType::DNSKEY),
+            "DS" => Ok(PyDnsRecordType::DS),
+            "NSEC" => Ok(PyDnsRecordType::NSEC),
+            "NSEC3" => Ok(PyDnsRecordType::NSEC3),
             _ => Err(pyo3::exceptions::PyValueError::new_err(
                 format!("Unsupported DNS record type: {}", s)
             )),
@@ -355,6 +375,11 @@ impl PyDnsRecordType {
             crate::builder::types::DnsRecordType::PTR => PyDnsRecordType::PTR,
             crate::builder::types::DnsRecordType::SOA => PyDnsRecordType::SOA,
             crate::builder::types::DnsRecordType::SRV => PyDnsRecordType::SRV,
+            crate::builder::types::DnsRecordType::RRSIG => PyDnsRecordType::RRSIG,
+            crate::builder::types::DnsRecordType::DNSKEY => PyDnsRecordType::DNSKEY,
+            crate::builder::types::DnsRecordType::DS => PyDnsRecordType::DS,
+            crate::builder::types::DnsRecordType::NSEC => PyDnsRecordType::NSEC,
+            crate::builder::types::DnsRecordType::NSEC3 => PyDnsRecordType::NSEC3,
         }
     }
     
@@ -370,6 +395,11 @@ impl PyDnsRecordType {
             PyDnsRecordType::PTR => crate::builder::types::DnsRecordType::PTR,
             PyDnsRecordType::SOA => crate::builder::types::DnsRecordType::SOA,
             PyDnsRecordType::SRV => crate::builder::types::DnsRecordType::SRV,
+            PyDnsRecordType::RRSIG => crate::builder::types::DnsRecordType::RRSIG,
+            PyDnsRecordType::DNSKEY => crate::builder::types::DnsRecordType::DNSKEY,
+            PyDnsRecordType::DS => crate::builder::types::DnsRecordType::DS,
+            PyDnsRecordType::NSEC => crate::builder::types::DnsRecordType::NSEC,
+            PyDnsRecordType::NSEC3 => crate::builder::types::DnsRecordType::NSEC3,
         }
     }
 }

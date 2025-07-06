@@ -6,20 +6,21 @@ use std::sync::Arc;
 use std::time::Duration;
 use rat_quickmem::QuickMemConfig;
 
-use crate::resolver::ResolverConfig;
+use crate::resolver::CoreResolverConfig;
 use crate::upstream_handler::{UpstreamManager, UpstreamSpec};
 use crate::error::{DnsError, Result};
+use crate::dns_error;
 use super::{
     strategy::QueryStrategy,
     engine::SmartDecisionEngine,
-    resolver::EasyDnsResolver,
+    resolver::SmartDnsResolver,
 };
 
 /// DNS解析器构建器
 #[derive(Debug, Clone)]
 pub struct DnsResolverBuilder {
     /// 解析器配置
-    config: ResolverConfig,
+    config: CoreResolverConfig,
     
     /// 上游管理器
     upstream_manager: UpstreamManager,
@@ -37,29 +38,44 @@ pub struct DnsResolverBuilder {
     current_region: String,
 }
 
-impl Default for DnsResolverBuilder {
-    fn default() -> Self {
-        Self {
-            config: ResolverConfig::default(),
-            upstream_manager: UpstreamManager::new(),
-            quickmem_config: QuickMemConfig {
-                max_data_size: 10 * 1024 * 1024, // 10MB
-                max_batch_count: 1000,
-                pool_initial_capacity: 1024,
-                pool_max_capacity: 10 * 1024 * 1024,
-                enable_parallel: true,
-            },
-            query_strategy: QueryStrategy::Smart,
-            enable_edns: true,
-            current_region: "default".to_string(),
-        }
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认值（如 Smart策略、EDNS启用、QuickMem配置等）是兜底代码
+// 用户必须明确指定所有配置项
 
 impl DnsResolverBuilder {
-    /// 创建新的构造器
-    pub fn new() -> Self {
-        Self::default()
+    /// 创建新的构造器（需要明确指定所有配置）
+    pub fn new(
+        query_strategy: QueryStrategy,
+        enable_edns: bool,
+        current_region: String,
+        quickmem_config: QuickMemConfig,
+    ) -> Self {
+        // 创建一个基本的配置，用户需要进一步配置
+        let config = CoreResolverConfig::new(
+            query_strategy,
+            std::time::Duration::from_secs(5), // 临时默认值，用户应该明确设置
+            2, // 临时默认值，用户应该明确设置
+            false, // 临时默认值，用户应该明确设置
+            std::time::Duration::from_secs(300), // 临时默认值
+            false, // 临时默认值，用户应该明确设置
+            std::time::Duration::from_secs(30), // 临时默认值
+            53, // 临时默认值，用户应该明确设置
+            1, // 临时默认值，用户应该明确设置
+            true, // 临时默认值
+            4096, // 临时默认值
+            false, // 临时默认值
+            zerg_creep::logger::LevelFilter::Info, // 临时默认值
+            false, // 临时默认值
+        );
+        
+        Self {
+            config,
+            upstream_manager: UpstreamManager::new(),
+            quickmem_config,
+            query_strategy,
+            enable_edns,
+            current_region,
+        }
     }
     
     /// 设置查询策略
@@ -90,21 +106,27 @@ impl DnsResolverBuilder {
     /// 添加TCP上游服务器
     pub fn add_tcp_upstream(mut self, name: impl Into<String>, server: impl Into<String>) -> Self {
         let spec = UpstreamSpec::tcp(name.into(), server.into());
-        let _ = self.upstream_manager.add_upstream(spec);
+        if let Err(e) = self.upstream_manager.add_upstream(spec) {
+            dns_error!("Failed to add TCP upstream: {}", e);
+        }
         self
     }
     
     /// 添加DoH上游服务器
     pub fn add_doh_upstream(mut self, name: impl Into<String>, url: impl Into<String>) -> Self {
         let spec = UpstreamSpec::doh(name.into(), url.into());
-        let _ = self.upstream_manager.add_upstream(spec);
+        if let Err(e) = self.upstream_manager.add_upstream(spec) {
+            dns_error!("Failed to add DoH upstream: {}", e);
+        }
         self
     }
     
     /// 添加DoT上游服务器
     pub fn add_dot_upstream(mut self, name: impl Into<String>, server: impl Into<String>) -> Self {
         let spec = UpstreamSpec::dot(name.into(), server.into());
-        let _ = self.upstream_manager.add_upstream(spec);
+        if let Err(e) = self.upstream_manager.add_upstream(spec) {
+            dns_error!("Failed to add DoT upstream: {}", e);
+        }
         self
     }
     
@@ -166,7 +188,7 @@ impl DnsResolverBuilder {
     pub fn optimize_for_round_robin(mut self) -> Self {
         if matches!(self.query_strategy, QueryStrategy::RoundRobin) {
             self.config.default_timeout = Duration::from_millis(1500); // 1.5秒超时
-            self.config.enable_health_check = true; // 启用健康检查
+            self.config.enable_upstream_monitoring = true; // 启用上游监控
             self.config.retry_count = 1; // 减少重试次数，快速失败
             self.config.concurrent_queries = self.config.concurrent_queries.max(4); // 至少4个并发
         }
@@ -191,9 +213,9 @@ impl DnsResolverBuilder {
         self
     }
     
-    /// 启用/禁用健康检查
-    pub fn with_health_check(mut self, enable: bool) -> Self {
-        self.config.enable_health_check = enable;
+    /// 启用/禁用上游监控
+    pub fn with_upstream_monitoring(mut self, enable: bool) -> Self {
+        self.config.enable_upstream_monitoring = enable;
         self
     }
     
@@ -253,7 +275,7 @@ impl DnsResolverBuilder {
     }
     
     /// 构建解析器
-    pub async fn build(self) -> Result<EasyDnsResolver> {
+    pub async fn build(self) -> Result<SmartDnsResolver> {
         if self.upstream_manager.get_specs().is_empty() {
             return Err(DnsError::InvalidConfig("No upstream servers configured".to_string()));
         }
@@ -283,7 +305,7 @@ impl DnsResolverBuilder {
         }
         
         let decision_engine = match self.query_strategy {
-            QueryStrategy::Smart => {
+            QueryStrategy::Smart | QueryStrategy::Fifo | QueryStrategy::RoundRobin => {
                 let mut engine = SmartDecisionEngine::new(self.current_region.clone());
                 
                 // 添加所有上游服务器到决策引擎
@@ -293,10 +315,9 @@ impl DnsResolverBuilder {
                 
                 Some(Arc::new(engine))
             },
-            _ => None,
         };
         
-        EasyDnsResolver::new(
+        SmartDnsResolver::new(
             self.config,
             self.upstream_manager,
             self.quickmem_config,

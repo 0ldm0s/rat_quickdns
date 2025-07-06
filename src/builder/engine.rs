@@ -114,17 +114,17 @@ impl SmartDecisionEngine {
             return None;
         }
         
-        // 按配置顺序查找第一个健康的服务器
+        // 按配置顺序查找第一个可用的服务器
         for spec in upstreams.iter() {
             if metrics.get(&spec.name)
-                .map(|m| m.is_healthy())
+                .map(|m| m.is_available())
                 .unwrap_or(true) {
                 return Some(spec.clone());
             }
         }
         
-        // 如果没有健康的服务器，返回第一个配置的服务器作为应急
-        upstreams.first().cloned()
+        // 如果没有可用的服务器，返回None让调用者处理错误
+        None
     }
     
     /// 智能策略选择上游服务器（别名方法）
@@ -142,30 +142,23 @@ impl SmartDecisionEngine {
             return None;
         }
         
-        // 过滤健康的上游服务器
-        let healthy_upstreams: Vec<_> = upstreams
+        // 过滤可用的上游服务器
+        let available_upstreams: Vec<_> = upstreams
             .iter()
             .filter(|spec| {
                 metrics.get(&spec.name)
-                    .map(|m| m.is_healthy())
+                    .map(|m| m.is_available())
                     .unwrap_or(true)
             })
             .collect();
         
-        if healthy_upstreams.is_empty() {
-            // 如果没有健康的服务器，选择连续失败次数最少的
-            return upstreams
-                .iter()
-                .min_by_key(|spec| {
-                    metrics.get(&spec.name)
-                        .map(|m| m.consecutive_failures)
-                        .unwrap_or(0)
-                })
-                .cloned();
+        if available_upstreams.is_empty() {
+            // 没有可用的上游服务器，返回None让调用者处理错误
+            return None;
         }
         
-        // 计算每个健康服务器的综合评分
-        let mut scored_upstreams: Vec<_> = healthy_upstreams
+        // 计算每个可用服务器的综合评分
+        let mut scored_upstreams: Vec<_> = available_upstreams
             .into_iter()
             .map(|spec| {
                 let score = self.calculate_upstream_score(spec, &metrics);
@@ -190,35 +183,27 @@ impl SmartDecisionEngine {
             return None;
         }
         
-        // 过滤健康的上游服务器
-        let healthy_upstreams: Vec<(usize, &UpstreamSpec)> = upstreams
+        // 过滤可用的上游服务器
+        let available_upstreams: Vec<(usize, &UpstreamSpec)> = upstreams
             .iter()
             .enumerate()
             .filter(|(_, spec)| {
                 metrics.get(&spec.name)
-                    .map(|m| m.is_healthy())
+                    .map(|m| m.is_available())
                     .unwrap_or(true)
             })
             .collect();
         
-        if healthy_upstreams.is_empty() {
-            // 应急策略：如果没有健康的服务器，选择连续失败次数最少的
-            let fallback = upstreams
-                .iter()
-                .min_by_key(|spec| {
-                    metrics.get(&spec.name)
-                        .map(|m| m.consecutive_failures)
-                        .unwrap_or(0)
-                })
-                .cloned();
-            return fallback;
+        if available_upstreams.is_empty() {
+            // 没有可用的上游服务器，返回None让调用者处理错误
+            return None;
         }
         
-        // 在健康服务器中进行轮询
-        let selected_index = *index % healthy_upstreams.len();
-        *index = (*index + 1) % healthy_upstreams.len();
+        // 在可用服务器中进行轮询
+        let selected_index = *index % available_upstreams.len();
+        *index = (*index + 1) % available_upstreams.len();
         
-        healthy_upstreams.get(selected_index)
+        available_upstreams.get(selected_index)
             .map(|(_, spec)| (*spec).clone())
     }
     
@@ -231,10 +216,10 @@ impl SmartDecisionEngine {
             return true;
         }
         
-        // 检查是否所有服务器都处于不健康状态
+        // 检查是否所有服务器都处于不可用状态
         upstreams.iter().all(|spec| {
             metrics.get(&spec.name)
-                .map(|m| !m.is_healthy())
+                .map(|m| !m.is_available())
                 .unwrap_or(false)
         })
     }
@@ -250,7 +235,7 @@ impl SmartDecisionEngine {
         
         for upstream in upstreams.iter() {
             if let Some(metric) = metrics.get(&upstream.name) {
-                if !metric.is_healthy() {
+                if !metric.is_available() {
                     failed_servers.push(FailedServerInfo {
                         name: upstream.name.clone(),
                         server: upstream.server.clone(),
@@ -280,15 +265,15 @@ impl SmartDecisionEngine {
             return "DNS解析服务不可用：未配置任何上游服务器".to_string();
         }
         
-        let healthy_count = upstreams.iter()
+        let available_count = upstreams.iter()
             .filter(|spec| {
                 metrics.get(&spec.name)
-                    .map(|m| m.is_healthy())
+                    .map(|m| m.is_available())
                     .unwrap_or(true)
             })
             .count();
         
-        if healthy_count == 0 {
+        if available_count == 0 {
             format!(
                 "DNS解析服务暂时不可用：所有{}个上游服务器均无响应。请检查网络连接或稍后重试。",
                 upstreams.len()
@@ -296,7 +281,7 @@ impl SmartDecisionEngine {
         } else {
             format!(
                 "DNS解析服务部分可用：{}/{}个上游服务器正常工作",
-                healthy_count,
+                available_count,
                 upstreams.len()
             )
         }
@@ -406,8 +391,8 @@ impl SmartDecisionEngine {
         self.upstreams.read().await.clone()
     }
     
-    /// 获取健康的上游服务器数量
-    pub async fn healthy_upstream_count(&self) -> usize {
+    /// 获取可用的上游服务器数量
+    pub async fn available_upstream_count(&self) -> usize {
         let upstreams = self.upstreams.read().await;
         let metrics = self.metrics.read().await;
         
@@ -415,7 +400,7 @@ impl SmartDecisionEngine {
             .iter()
             .filter(|spec| {
                 metrics.get(&spec.name)
-                    .map(|m| m.is_healthy())
+                    .map(|m| m.is_available())
                     .unwrap_or(true)
             })
             .count()

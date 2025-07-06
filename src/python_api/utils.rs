@@ -245,66 +245,7 @@ pub fn get_default_dot_servers() -> Vec<(String, String, String)> {
     ]
 }
 
-/// 快速解析单个域名（便捷函数）
-/// 
-/// Args:
-///     domain (str): 要解析的域名
-/// 
-/// Returns:
-///     List[str]: IP地址列表
-/// 
-/// Example:
-///     >>> import rat_quickdns_py as dns
-///     >>> ips = dns.quick_resolve("example.com")
-///     >>> print(ips)
-///     ['93.184.216.34']
-#[pyfunction]
-pub fn quick_resolve(py: Python, domain: &str) -> pyo3::PyResult<Vec<String>> {
-    use crate::python_api::builder::PyDnsResolverBuilder;
-    use crate::python_api::types::PyQueryStrategy;
-    
-    // 创建快速配置的解析器
-    let mut builder = PyDnsResolverBuilder::new();
-    builder.query_strategy(&PyQueryStrategy::FIFO);
-    builder.add_udp_upstream("Cloudflare".to_string(), "1.1.1.1:53".to_string());
-    builder.add_udp_upstream("Google".to_string(), "8.8.8.8:53".to_string());
-    builder.timeout(3.0);
-    
-    let resolver = builder.build(py)?;
-    resolver.resolve(py, domain)
-}
 
-/// 批量解析多个域名（便捷函数）
-/// 
-/// Args:
-///     domains (List[str]): 要解析的域名列表
-/// 
-/// Returns:
-///     List[DnsResult]: 解析结果列表
-/// 
-/// Example:
-///     >>> import rat_quickdns_py as dns
-///     >>> results = dns.batch_resolve(["google.com", "github.com"])
-///     >>> for result in results:
-///     ...     if result.is_ok():
-///     ...         print(f"Success: {result.unwrap()}")
-///     ...     else:
-///     ...         print(f"Error: {result.unwrap_err()}")
-#[pyfunction]
-pub fn batch_resolve(py: Python, domains: Vec<String>) -> pyo3::PyResult<Vec<crate::python_api::types::PyDnsResult>> {
-    use crate::python_api::builder::PyDnsResolverBuilder;
-    use crate::python_api::types::PyQueryStrategy;
-    
-    // 创建快速配置的解析器
-    let mut builder = PyDnsResolverBuilder::new();
-    builder.query_strategy(&PyQueryStrategy::FIFO);
-    builder.add_udp_upstream("Cloudflare".to_string(), "1.1.1.1:53".to_string());
-    builder.add_udp_upstream("Google".to_string(), "8.8.8.8:53".to_string());
-    builder.timeout(3.0);
-    
-    let resolver = builder.build(py)?;
-    resolver.batch_resolve(py, domains)
-}
 
 /// 创建快速配置的解析器构建器
 /// 
@@ -341,7 +282,7 @@ pub fn create_preset_builder(preset: &str) -> pyo3::PyResult<crate::python_api::
             builder.add_dot_upstream("Quad9".to_string(), "9.9.9.9:853".to_string());
             builder.timeout(5.0);
             builder.enable_edns(true);
-            builder.enable_health_checker(true);
+            builder.enable_upstream_monitoring(true);
         },
         "balanced" => {
             // 平衡配置：混合使用多种协议和策略
@@ -351,7 +292,7 @@ pub fn create_preset_builder(preset: &str) -> pyo3::PyResult<crate::python_api::
             builder.add_udp_upstream("Quad9".to_string(), "9.9.9.9:53".to_string());
             builder.timeout(4.0);
             builder.enable_edns(true);
-            builder.enable_health_checker(true);
+            builder.enable_upstream_monitoring(true);
         },
         _ => {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(

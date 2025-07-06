@@ -12,8 +12,8 @@ pub struct Request {
     pub flags: Flags,
     /// 查询问题
     pub query: Query,
-    /// 客户端子网信息 (EDNS Client Subnet)
-    pub client_subnet: Option<ClientSubnet>,
+    /// 客户端地址信息 (EDNS Client Subnet)
+    pub client_address: Option<ClientAddress>,
 }
 
 /// DNS响应
@@ -180,9 +180,9 @@ pub enum ResponseCode {
     Unknown(u8),
 }
 
-/// EDNS客户端子网信息
+/// EDNS客户端地址信息
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientSubnet {
+pub struct ClientAddress {
     /// 客户端IP地址
     pub address: IpAddr,
     /// 源前缀长度
@@ -217,8 +217,9 @@ pub struct EdnsRecord {
 
 /// EDNS选项代码常量
 pub mod edns_option_codes {
-    /// Client Subnet选项代码
-    pub const CLIENT_SUBNET: u16 = 8;
+    /// Client Address选项代码 - 修正命名，原CLIENT_SUBNET容易误导
+    /// 这个选项实际上传递的是客户端地址信息，而不是子网信息
+    pub const CLIENT_ADDRESS: u16 = 8;
     /// Cookie选项代码
     pub const COOKIE: u16 = 10;
     /// Keepalive选项代码
@@ -227,8 +228,8 @@ pub mod edns_option_codes {
     pub const PADDING: u16 = 12;
 }
 
-impl ClientSubnet {
-    /// 创建新的客户端子网信息
+impl ClientAddress {
+    /// 创建新的客户端地址信息
     pub fn new(address: IpAddr, source_prefix_length: u8) -> Self {
         Self {
             address,
@@ -237,12 +238,12 @@ impl ClientSubnet {
         }
     }
     
-    /// 从IPv4地址创建客户端子网信息
+    /// 从IPv4地址创建客户端地址信息
     pub fn from_ipv4(address: Ipv4Addr, prefix_length: u8) -> Self {
         Self::new(IpAddr::V4(address), prefix_length)
     }
     
-    /// 从IPv6地址创建客户端子网信息
+    /// 从IPv6地址创建客户端地址信息
     pub fn from_ipv6(address: Ipv6Addr, prefix_length: u8) -> Self {
         Self::new(IpAddr::V6(address), prefix_length)
     }
@@ -255,7 +256,7 @@ impl ClientSubnet {
         }
     }
     
-    /// 将客户端子网信息编码为EDNS选项数据
+    /// 将客户端地址信息编码为EDNS选项数据
     pub fn encode(&self) -> Vec<u8> {
         let mut data = Vec::new();
         
@@ -285,7 +286,7 @@ impl ClientSubnet {
         data
     }
     
-    /// 从EDNS选项数据解码客户端子网信息
+    /// 从EDNS选项数据解码客户端地址信息
     pub fn decode(data: &[u8]) -> Result<Self, &'static str> {
         if data.len() < 4 {
             return Err("Client subnet data too short");
@@ -329,17 +330,19 @@ impl ClientSubnet {
     }
 }
 
-impl Default for EdnsRecord {
-    fn default() -> Self {
-        Self {
-            udp_payload_size: 4096,
-            extended_rcode: 0,
-            version: 0,
-            dnssec_ok: false,
-            options: Vec::new(),
-        }
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认值（如 4096 UDP载荷大小）是兜底代码
+// 用户现在必须明确配置所有EDNS参数
+//
+// 迁移示例：
+// 旧代码: EdnsRecord::default()
+// 新代码: EdnsRecord {
+//     udp_payload_size: your_payload_size,
+//     extended_rcode: 0,
+//     version: 0,
+//     dnssec_ok: your_dnssec_preference,
+//     options: your_options,
+// }
 
 impl From<u16> for RecordType {
     fn from(value: u16) -> Self {
@@ -427,6 +430,8 @@ impl From<ResponseCode> for u8 {
     }
 }
 
+// 注意：保留 Flags 的 Default 实现，因为这是功能性需求
+// DNS标志位的初始化不是兜底行为，而是协议规范的正常默认值
 impl Default for Flags {
     fn default() -> Self {
         Self {

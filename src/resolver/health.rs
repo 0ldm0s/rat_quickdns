@@ -16,54 +16,46 @@ pub struct BasicStats {
 
 type TransportStats = BasicStats;
 
-/// 健康检查器
+/// 上游监控器
 #[derive(Debug)]
-pub struct HealthChecker {
+pub struct UpstreamMonitor {
     /// 传输统计信息
     stats: Arc<RwLock<HashMap<String, DetailedStats>>>,
     /// 检查间隔
     check_interval: Duration,
     /// 健康阈值配置
-    config: HealthConfig,
+    config: UpstreamConfig,
 }
 
-/// 健康检查配置
+/// 上游监控配置
 #[derive(Debug, Clone)]
-pub struct HealthConfig {
+pub struct UpstreamConfig {
     /// 最小成功率阈值
     pub min_success_rate: f64,
     /// 最大平均响应时间
     pub max_avg_response_time: Duration,
     /// 连续失败阈值
     pub max_consecutive_failures: u32,
-    /// 健康恢复所需的连续成功次数
+    /// 状态恢复所需的连续成功次数
     pub recovery_success_count: u32,
     /// 统计窗口大小
     pub stats_window_size: usize,
-    /// 不健康状态的最大持续时间
-    pub max_unhealthy_duration: Duration,
+    /// 最大不可用持续时间
+    pub max_unavailable_duration: Duration,
 }
 
-impl Default for HealthConfig {
-    fn default() -> Self {
-        Self {
-            min_success_rate: 0.3,  // 降低成功率要求
-            max_avg_response_time: Duration::from_secs(30),  // 增加响应时间容忍度
-            max_consecutive_failures: 10,  // 增加连续失败容忍度
-            recovery_success_count: 1,  // 降低恢复要求
-            stats_window_size: 100,
-            max_unhealthy_duration: Duration::from_secs(300),
-        }
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的监控参数（如 0.3 成功率、30秒响应时间等）是兜底代码
+// 这些"宽松"的默认值可能掩盖真实的性能问题
+// 用户现在必须根据实际需求明确配置监控参数
 
-/// 传输健康状态
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HealthStatus {
-    /// 健康
-    Healthy,
-    /// 不健康
-    Unhealthy,
+/// 上游状态
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpstreamStatus {
+    /// 可用
+    Available,
+    /// 不可用
+    Unavailable,
     /// 未知（刚启动）
     Unknown,
 }
@@ -85,12 +77,14 @@ pub struct DetailedStats {
     pub consecutive_failures: u32,
     /// 连续成功次数
     pub consecutive_successes: u32,
-    /// 健康状态
-    pub health_status: HealthStatus,
+    /// 上游状态
+    pub upstream_status: UpstreamStatus,
     /// 状态变更时间
     pub status_changed_at: SystemTime,
 }
 
+// 注意：保留 DetailedStats 的 Default 实现，因为这是功能性需求
+// 统计数据的初始化不是兜底行为，而是正常的数据结构初始化
 impl Default for DetailedStats {
     fn default() -> Self {
         Self {
@@ -101,24 +95,22 @@ impl Default for DetailedStats {
             avg_response_time: 0,
             consecutive_failures: 0,
             consecutive_successes: 0,
-            health_status: HealthStatus::Unknown,
+            upstream_status: UpstreamStatus::Unknown,
             status_changed_at: SystemTime::now(),
         }
     }
 }
 
-impl HealthChecker {
-    /// 创建新的健康检查器
-    pub fn new(check_interval: Duration) -> Self {
-        Self {
-            stats: Arc::new(RwLock::new(HashMap::new())),
-            check_interval,
-            config: HealthConfig::default(),
-        }
-    }
+impl UpstreamMonitor {
+    // 注意：移除了使用默认配置的构造函数
+    // 用户现在必须明确提供 UpstreamConfig，不能依赖兜底配置
+    // 
+    // 迁移示例：
+    // 旧代码: HealthChecker::new(Duration::from_secs(30))
+    // 新代码: UpstreamMonitor::with_config(Duration::from_secs(30), your_health_config)
     
-    /// 使用自定义配置创建健康检查器
-    pub fn with_config(check_interval: Duration, config: HealthConfig) -> Self {
+    /// 使用自定义配置创建上游监控器
+    pub fn with_config(check_interval: Duration, config: UpstreamConfig) -> Self {
         Self {
             stats: Arc::new(RwLock::new(HashMap::new())),
             check_interval,
@@ -148,8 +140,8 @@ impl HealthChecker {
             detailed_stats.consecutive_failures = 0;
             detailed_stats.consecutive_successes += 1;
             
-            // 检查健康状态
-            self.update_health_status(detailed_stats);
+            // 检查上游状态
+            self.update_upstream_status(detailed_stats);
         }
     }
     
@@ -167,57 +159,57 @@ impl HealthChecker {
             detailed_stats.consecutive_successes = 0;
             detailed_stats.consecutive_failures += 1;
             
-            // 检查健康状态
-            self.update_health_status(detailed_stats);
+            // 检查上游状态
+            self.update_upstream_status(detailed_stats);
         }
     }
     
-    /// 更新健康状态
-    fn update_health_status(&self, stats: &mut DetailedStats) {
-        let old_status = stats.health_status.clone();
-        let mut new_status = HealthStatus::Unknown;  // 默认为未知状态
+    /// 更新上游状态
+    fn update_upstream_status(&self, stats: &mut DetailedStats) {
+        let old_status = stats.upstream_status.clone();
+        let mut new_status = UpstreamStatus::Unknown;  // 默认为未知状态
         
         let total = stats.success_count + stats.failure_count;
         
         // 如果样本数不足，保持未知状态
         if total < 3 {
-            new_status = HealthStatus::Unknown;
+            new_status = UpstreamStatus::Unknown;
         } else {
-            // 有足够样本时才进行健康判断
-            new_status = HealthStatus::Healthy;
+            // 有足够样本时才进行状态判断
+            new_status = UpstreamStatus::Available;
             
             // 检查连续失败
             if stats.consecutive_failures >= self.config.max_consecutive_failures {
-                new_status = HealthStatus::Unhealthy;
+                new_status = UpstreamStatus::Unavailable;
             }
             
             // 检查成功率（只有足够样本时才检查）
             if total >= 5 && (stats.success_count as f64 / total as f64) < self.config.min_success_rate {
-                new_status = HealthStatus::Unhealthy;
+                new_status = UpstreamStatus::Unavailable;
             }
             
             // 检查平均响应时间
             if stats.avg_response_time > 0 && Duration::from_millis(stats.avg_response_time) > self.config.max_avg_response_time {
-                new_status = HealthStatus::Unhealthy;
+                new_status = UpstreamStatus::Unavailable;
             }
         }
         
         // 检查恢复条件
-        if stats.health_status == HealthStatus::Unhealthy {
+        if stats.upstream_status == UpstreamStatus::Unavailable {
             if stats.consecutive_successes >= self.config.recovery_success_count {
-                new_status = HealthStatus::Healthy;
+                new_status = UpstreamStatus::Available;
             } else {
-                new_status = HealthStatus::Unhealthy;
+                new_status = UpstreamStatus::Unavailable;
             }
         }
         
-        // 检查长期不健康状态
-        if stats.health_status == HealthStatus::Unhealthy {
+        // 检查长期不可用状态
+        if stats.upstream_status == UpstreamStatus::Unavailable {
             if let Ok(elapsed) = stats.status_changed_at.elapsed() {
-                if elapsed > self.config.max_unhealthy_duration {
-                    // 长期不健康，给一次恢复机会
+                if elapsed > self.config.max_unavailable_duration {
+                    // 长期不可用，给一次恢复机会
                     if stats.consecutive_successes > 0 {
-                        new_status = HealthStatus::Healthy;
+                        new_status = UpstreamStatus::Available;
                     }
                 }
             }
@@ -225,33 +217,33 @@ impl HealthChecker {
         
         // 更新状态
         if new_status != old_status {
-            stats.health_status = new_status;
+            stats.upstream_status = new_status;
             stats.status_changed_at = SystemTime::now();
         }
     }
     
-    /// 检查传输是否健康
-    pub fn is_healthy(&self, transport_type: &str) -> bool {
+    /// 检查传输是否可用
+    pub fn is_available(&self, transport_type: &str) -> bool {
         if let Ok(stats) = self.stats.read() {
             if let Some(stats) = stats.get(transport_type) {
-                return stats.health_status == HealthStatus::Healthy ||
-                       stats.health_status == HealthStatus::Unknown;
+                return stats.upstream_status == UpstreamStatus::Available ||
+                       stats.upstream_status == UpstreamStatus::Unknown;
             }
         }
         
-        // 默认认为是健康的（新传输）
+        // 默认认为是可用的（新传输）
         true
     }
     
-    /// 获取传输健康状态
-    pub fn get_health_status(&self, transport_type: &str) -> HealthStatus {
+    /// 获取传输上游状态
+    pub fn get_upstream_status(&self, transport_type: &str) -> UpstreamStatus {
         if let Ok(stats) = self.stats.read() {
             if let Some(detailed_stats) = stats.get(transport_type) {
-                return detailed_stats.health_status.clone();
+                return detailed_stats.upstream_status.clone();
             }
         }
         
-        HealthStatus::Unknown
+        UpstreamStatus::Unknown
     }
     
     /// 获取所有传输的统计信息
@@ -283,29 +275,29 @@ impl HealthChecker {
         }
     }
     
-    /// 获取健康的传输列表
-    pub fn get_healthy_transports(&self) -> Vec<String> {
-        let mut healthy = Vec::new();
+    /// 获取可用的传输列表
+    pub fn get_available_transports(&self) -> Vec<String> {
+        let mut available = Vec::new();
         
         if let Ok(stats) = self.stats.read() {
             for (transport_type, detailed_stats) in stats.iter() {
-                if detailed_stats.health_status == HealthStatus::Healthy ||
-                   detailed_stats.health_status == HealthStatus::Unknown {
-                    healthy.push(transport_type.clone());
+                if detailed_stats.upstream_status == UpstreamStatus::Available ||
+               detailed_stats.upstream_status == UpstreamStatus::Unknown {
+                    available.push(transport_type.clone());
                 }
             }
         }
         
-        healthy
+        available
     }
     
-    /// 检查传输是否健康（包括新传输）
-    pub fn is_transport_healthy(&self, transport_type: &str) -> bool {
+    /// 检查传输是否可用（包括新传输）
+    pub fn is_transport_available(&self, transport_type: &str) -> bool {
         if let Ok(stats) = self.stats.read() {
             if let Some(detailed_stats) = stats.get(transport_type) {
                 // 有统计记录的传输，检查其健康状态
-                detailed_stats.health_status == HealthStatus::Healthy ||
-                detailed_stats.health_status == HealthStatus::Unknown
+                detailed_stats.upstream_status == UpstreamStatus::Available ||
+                detailed_stats.upstream_status == UpstreamStatus::Unknown
             } else {
                 // 新传输默认认为是健康的
                 true
@@ -316,19 +308,19 @@ impl HealthChecker {
         }
     }
     
-    /// 获取不健康的传输列表
-    pub fn get_unhealthy_transports(&self) -> Vec<String> {
-        let mut unhealthy = Vec::new();
+    /// 获取不可用的传输列表
+    pub fn get_unavailable_transports(&self) -> Vec<String> {
+        let mut unavailable = Vec::new();
         
         if let Ok(stats) = self.stats.read() {
             for (transport_type, detailed_stats) in stats.iter() {
-                if detailed_stats.health_status == HealthStatus::Unhealthy {
-                    unhealthy.push(transport_type.clone());
+                if detailed_stats.upstream_status == UpstreamStatus::Unavailable {
+                    unavailable.push(transport_type.clone());
                 }
             }
         }
         
-        unhealthy
+        unavailable
     }
     
     /// 重置传输统计
@@ -347,14 +339,14 @@ impl HealthChecker {
         }
     }
     
-    /// 强制设置传输健康状态
-    pub fn set_health_status(&self, transport_type: &str, status: HealthStatus) {
+    /// 设置传输上游状态（用于测试或手动干预）
+    pub fn set_upstream_status(&self, transport_type: &str, status: UpstreamStatus) {
         if let Ok(mut stats) = self.stats.write() {
             let detailed_stats = stats.entry(transport_type.to_string())
                 .or_insert_with(DetailedStats::default);
             
-            if detailed_stats.health_status != status {
-                detailed_stats.health_status = status;
+            if detailed_stats.upstream_status != status {
+                detailed_stats.upstream_status = status;
                 detailed_stats.status_changed_at = SystemTime::now();
             }
         }
@@ -368,11 +360,11 @@ impl HealthChecker {
             for (transport_type, detailed_stats) in stats.iter() {
                 let mut score = 0.0;
                 
-                // 健康状态分数
-                match detailed_stats.health_status {
-                    HealthStatus::Healthy => score += 100.0,
-                    HealthStatus::Unknown => score += 80.0,
-                    HealthStatus::Unhealthy => score += 0.0,
+                // 上游状态分数
+                match detailed_stats.upstream_status {
+                    UpstreamStatus::Available => score += 100.0,
+            UpstreamStatus::Unknown => score += 80.0,
+            UpstreamStatus::Unavailable => score += 0.0,
                 }
                 
                 // 成功率分数
@@ -415,45 +407,45 @@ impl HealthChecker {
         self.check_interval = interval;
     }
     
-    /// 获取配置
-    pub fn config(&self) -> &HealthConfig {
+    /// 获取配置引用
+    pub fn config(&self) -> &UpstreamConfig {
         &self.config
     }
     
     /// 更新配置
-    pub fn update_config(&mut self, config: HealthConfig) {
+    pub fn update_config(&mut self, config: UpstreamConfig) {
         self.config = config;
     }
 }
 
-/// 健康检查任务
-pub struct HealthCheckTask {
-    checker: Arc<HealthChecker>,
+/// 上游监控任务
+pub struct UpstreamMonitorTask {
+    monitor: Arc<UpstreamMonitor>,
 }
 
-impl HealthCheckTask {
-    /// 创建新的健康检查任务
-    pub fn new(checker: Arc<HealthChecker>) -> Self {
-        Self { checker }
+impl UpstreamMonitorTask {
+    /// 创建新的上游监控任务
+    pub fn new(monitor: Arc<UpstreamMonitor>) -> Self {
+        Self { monitor }
     }
     
-    /// 启动健康检查任务
+    /// 启动上游监控任务
     pub async fn start(self) {
-        let mut interval = tokio::time::interval(self.checker.check_interval());
+        let mut interval = tokio::time::interval(self.monitor.check_interval());
         
         loop {
             interval.tick().await;
             
-            // 执行健康检查逻辑
+            // 执行上游监控逻辑
             // 这里可以添加主动健康检查，比如发送ping请求
-            self.perform_health_check().await;
+            self.perform_upstream_monitoring().await;
         }
     }
     
-    /// 执行健康检查
-    async fn perform_health_check(&self) {
+    /// 执行上游监控
+    async fn perform_upstream_monitoring(&self) {
         // 获取所有传输的统计信息
-        let stats = self.checker.get_detailed_stats();
+        let stats = self.monitor.get_detailed_stats();
         
         for (transport_type, detailed_stats) in stats {
             // 检查长时间无活动的传输
@@ -467,11 +459,11 @@ impl HealthCheckTask {
             }
             
             // 检查长时间不健康的传输
-            if detailed_stats.health_status == HealthStatus::Unhealthy {
+            if detailed_stats.upstream_status == UpstreamStatus::Unavailable {
                 if let Ok(elapsed) = detailed_stats.status_changed_at.elapsed() {
-                    if elapsed > self.checker.config().max_unhealthy_duration {
+                    if elapsed > self.monitor.config().max_unavailable_duration {
                         // 给予恢复机会
-                        self.checker.set_health_status(&transport_type, HealthStatus::Unknown);
+                        self.monitor.set_upstream_status(&transport_type, UpstreamStatus::Unknown);
                     }
                 }
             }

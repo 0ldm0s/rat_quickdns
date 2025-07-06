@@ -21,17 +21,19 @@ impl UdpTransport {
         Self { config }
     }
     
-    /// 使用默认配置创建UDP传输
-    pub fn default() -> Self {
-        Self::new(TransportConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供 TransportConfig，不能依赖隐式默认值
+    // 
+    // 迁移示例：
+    // 旧代码: UdpTransport::default()
+    // 新代码: UdpTransport::new(your_transport_config)
     
     /// Windows平台特定的socket创建
     #[cfg(windows)]
     async fn create_windows_socket(&self) -> Result<UdpSocket> {
         use std::net::SocketAddr;
         
-        dns_transport!("Windows平台：开始创建UDP socket");
+        dns_debug!("Windows平台：开始创建UDP socket");
         
         // Windows平台尝试多种绑定策略
         let bind_addresses = [
@@ -46,7 +48,7 @@ impl UdpTransport {
             dns_debug!("尝试绑定地址: {}", addr);
             match UdpSocket::bind(addr).await {
                 Ok(socket) => {
-                    dns_info!("成功绑定到地址: {}", addr);
+                    dns_debug!("成功绑定到地址: {}", addr);
                     // 成功绑定，返回socket
                     return Ok(socket);
                 }
@@ -87,12 +89,12 @@ impl UdpTransport {
         dns_debug!("请求ID: {}", request.id);
         dns_debug!("查询域名: '{}'", request.query.name);
         dns_debug!("查询类型: {:?}", request.query.qtype);
-        dns_debug!("客户端子网: {:?}", request.client_subnet);
+        dns_debug!("客户端地址: {:?}", request.client_address);
         
         let mut buffer = Vec::with_capacity(512);
         
         // 检查是否需要EDNS记录
-        let has_edns = request.client_subnet.is_some();
+        let has_edns = request.client_address.is_some();
         let additional_count = if has_edns { 1u16 } else { 0u16 };
         dns_debug!("需要EDNS记录: {}, 附加记录数: {}", has_edns, additional_count);
         
@@ -133,9 +135,9 @@ impl UdpTransport {
         dns_debug!("查询类型和类别添加完成，当前缓冲区长度: {} 字节", buffer.len());
         
         // 添加EDNS记录(如果需要)
-        if let Some(ref client_subnet) = request.client_subnet {
-            dns_debug!("开始添加EDNS记录");
-            Self::encode_edns_record(&mut buffer, client_subnet)?;
+        if let Some(ref client_address) = request.client_address {
+                dns_debug!("添加EDNS记录");
+                Self::encode_edns_record(&mut buffer, client_address)?;
             dns_debug!("EDNS记录添加完成，最终缓冲区长度: {} 字节", buffer.len());
         }
         
@@ -359,13 +361,13 @@ impl UdpTransport {
         let (query, _) = Self::parse_query(data, offset)?;
         
         // 检查是否有EDNS记录
-        let client_subnet = None; // 简化处理，暂不解析EDNS
+        let client_address = None; // 简化处理，暂不解析EDNS
         
         Ok(Request {
             id,
             flags,
             query,
-            client_subnet,
+            client_address,
         })
     }
     
@@ -640,7 +642,7 @@ impl UdpTransport {
     }
     
     /// 编码EDNS记录
-    pub fn encode_edns_record(buffer: &mut Vec<u8>, client_subnet: &crate::types::ClientSubnet) -> Result<()> {
+    pub fn encode_edns_record(buffer: &mut Vec<u8>, client_address: &crate::types::ClientAddress) -> Result<()> {
         // EDNS记录格式:
         // NAME: . (root, 1字节: 0x00)
         // TYPE: OPT (41, 2字节)
@@ -663,22 +665,22 @@ impl UdpTransport {
         buffer.push(0); // Version
         buffer.extend_from_slice(&0u16.to_be_bytes()); // Flags (DO=0, Z=0)
         
-        // 编码Client Subnet选项
-        let client_subnet_data = client_subnet.encode();
-        let option_length = client_subnet_data.len() as u16;
+        // 编码Client Address选项
+        let client_address_data = client_address.encode();
+        let option_length = client_address_data.len() as u16;
         
         // RDLENGTH: 选项头部(4字节) + 选项数据长度
         let rdlength = 4 + option_length;
         buffer.extend_from_slice(&rdlength.to_be_bytes());
         
-        // 选项代码: Client Subnet (8)
-        buffer.extend_from_slice(&edns_option_codes::CLIENT_SUBNET.to_be_bytes());
+        // 选项代码: Client Address (8) - 修正命名，原CLIENT_SUBNET容易误导
+        buffer.extend_from_slice(&edns_option_codes::CLIENT_ADDRESS.to_be_bytes());
         
         // 选项长度
         buffer.extend_from_slice(&option_length.to_be_bytes());
         
         // 选项数据
-        buffer.extend_from_slice(&client_subnet_data);
+        buffer.extend_from_slice(&client_address_data);
         
         Ok(())
     }

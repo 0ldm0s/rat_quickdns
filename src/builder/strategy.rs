@@ -17,11 +17,8 @@ pub enum QueryStrategy {
     RoundRobin,
 }
 
-impl Default for QueryStrategy {
-    fn default() -> Self {
-        Self::Smart
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认策略（Smart）是兜底代码，用户必须明确指定查询策略
 
 impl QueryStrategy {
     /// 获取策略描述

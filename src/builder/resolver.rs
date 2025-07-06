@@ -7,9 +7,11 @@ use std::time::Instant;
 use uuid::Uuid;
 use rat_quickmem::QuickMemConfig;
 
-use crate::resolver::{ResolverConfig, Resolver};
+use crate::resolver::{CoreResolverConfig, CoreResolver};
 use crate::upstream_handler::UpstreamManager;
+use crate::utils::{parse_simple_server_address, parse_url_components, get_user_agent};
 use crate::error::{DnsError, Result};
+use crate::{dns_info, dns_debug};
 use super::{
     strategy::QueryStrategy,
     engine::SmartDecisionEngine,
@@ -18,9 +20,9 @@ use super::{
 
 /// 高性能DNS解析器
 #[derive(Debug)]
-pub struct EasyDnsResolver {
+pub struct SmartDnsResolver {
     /// 底层解析器
-    resolver: Resolver,
+    resolver: CoreResolver,
     
     /// 上游管理器
     upstream_manager: UpstreamManager,
@@ -38,10 +40,19 @@ pub struct EasyDnsResolver {
     enable_edns: bool,
 }
 
-impl EasyDnsResolver {
+impl Drop for SmartDnsResolver {
+    fn drop(&mut self) {
+        dns_info!("Dropping SmartDnsResolver, cleaning up resources...");
+        // 注意：由于异步任务的特性，我们无法在Drop中直接取消它们
+        // 但我们可以记录清理日志，帮助调试
+        dns_debug!("SmartDnsResolver dropped with {} transports", self.resolver.transport_count());
+    }
+}
+
+impl SmartDnsResolver {
     /// 创建新的DNS解析器
     pub(super) fn new(
-        config: ResolverConfig,
+        config: CoreResolverConfig,
         upstream_manager: UpstreamManager,
         quickmem_config: QuickMemConfig,
         decision_engine: Option<Arc<SmartDecisionEngine>>,
@@ -50,19 +61,20 @@ impl EasyDnsResolver {
     ) -> Result<Self> {
         // 提取需要的配置值，避免所有权问题
         let default_timeout = config.default_timeout;
-        let mut resolver = Resolver::new(config);
+        let mut resolver = CoreResolver::new(config);
+        
+        let specs = upstream_manager.get_specs();
+        println!("[DEBUG] SmartDnsResolver::new - 开始处理 {} 个上游服务器", specs.len());
         
         // 根据上游管理器配置添加传输协议
-        for spec in upstream_manager.get_specs() {
+        for spec in specs {
             match spec.transport_type {
                 crate::upstream_handler::UpstreamType::Udp => {
-                    // 解析服务器地址和端口
-                    let (server, port) = if spec.server.contains(':') {
-                        let parts: Vec<&str> = spec.server.split(':').collect();
-                        (parts[0].to_string(), parts[1].parse().unwrap_or(53))
-                    } else {
-                        (spec.server.clone(), 53)
-                    };
+                    println!("[DEBUG] 开始创建UDP传输: {} ({})", spec.name, spec.server);
+                    
+                    // 使用公共函数解析服务器地址和端口
+                    let (server, port) = parse_simple_server_address(&spec.server, 53);
+                    println!("[DEBUG] UDP地址解析: server={}, port={}", server, port);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -73,15 +85,14 @@ impl EasyDnsResolver {
                         pool_size: 10,
                     };
                     resolver.add_udp_transport(transport_config);
+                    println!("[DEBUG] ✅ UDP传输添加成功: {}", spec.name);
                 },
                 crate::upstream_handler::UpstreamType::Tcp => {
-                    // 解析服务器地址和端口
-                    let (server, port) = if spec.server.contains(':') {
-                        let parts: Vec<&str> = spec.server.split(':').collect();
-                        (parts[0].to_string(), parts[1].parse().unwrap_or(53))
-                    } else {
-                        (spec.server.clone(), 53)
-                    };
+                    println!("[DEBUG] 开始创建TCP传输: {} ({})", spec.name, spec.server);
+                    
+                    // 使用公共函数解析服务器地址和端口
+                    let (server, port) = parse_simple_server_address(&spec.server, 53);
+                    println!("[DEBUG] TCP地址解析: server={}, port={}", server, port);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -92,12 +103,28 @@ impl EasyDnsResolver {
                         pool_size: 10,
                     };
                     resolver.add_tcp_transport(transport_config);
+                    println!("[DEBUG] ✅ TCP传输添加成功: {}", spec.name);
                 },
                 crate::upstream_handler::UpstreamType::DoH => {
+                    println!("[DEBUG] 开始创建DoH传输: {} ({})", spec.name, spec.server);
+                    
+                    // 验证HTTPS URL格式
+                    if !spec.server.starts_with("https://") {
+                        return Err(DnsError::InvalidConfig("DoH server must be HTTPS URL".to_string()));
+                    }
+                    
+                    // 使用公共函数从URL中解析主机名和端口
+                    let (hostname, port) = parse_url_components(&spec.server)?;
+                    println!("[DEBUG] DoH URL解析: hostname={}, port={}", hostname, port);
+                    
+                    // 优先使用预解析的IP地址进行连接
+                    let connection_server = spec.resolved_ip.as_ref().unwrap_or(&hostname);
+                    println!("[DEBUG] DoH连接服务器: {}", connection_server);
+                    
                     let https_config = crate::transport::HttpsConfig {
                         base: crate::transport::TransportConfig {
-                            server: "cloudflare-dns.com".to_string(),
-                            port: 443,
+                            server: connection_server.clone(),
+                            port,
                             timeout: default_timeout,
                             tcp_fast_open: false,
                             tcp_nodelay: true,
@@ -105,35 +132,55 @@ impl EasyDnsResolver {
                         },
                         url: spec.server.clone(),
                         method: crate::transport::HttpMethod::POST,
-                        user_agent: "rat_quickdns/0.1.0".to_string(),
+                        user_agent: get_user_agent(),
                     };
-                    resolver.add_https_transport(https_config)?;
+                    
+                    println!("[DEBUG] 调用resolver.add_https_transport...");
+                    match resolver.add_https_transport(https_config) {
+                        Ok(_) => println!("[DEBUG] ✅ DoH传输添加成功: {}", spec.name),
+                        Err(e) => {
+                            println!("[DEBUG] ❌ DoH传输添加失败: {} - 错误: {:?}", spec.name, e);
+                            return Err(e);
+                        }
+                    }
                 },
                 crate::upstream_handler::UpstreamType::DoT => {
-                    // 解析服务器地址和端口
-                    let (server, port) = if spec.server.contains(':') {
-                        let parts: Vec<&str> = spec.server.split(':').collect();
-                        (parts[0].to_string(), parts[1].parse().unwrap_or(853))
-                    } else {
-                        (spec.server.clone(), 853)
-                    };
+                    println!("[DEBUG] 开始创建DoT传输: {} ({})", spec.name, spec.server);
+                    
+                    // 使用公共函数解析服务器地址和端口
+                    let (server, port) = parse_simple_server_address(&spec.server, 853);
+                    println!("[DEBUG] DoT地址解析: server={}, port={}", server, port);
+                    
+                    // 优先使用预解析的IP地址进行连接，但SNI必须使用原始域名
+                    let connection_server = spec.resolved_ip.as_ref().unwrap_or(&server);
+                    println!("[DEBUG] DoT连接服务器: {}, SNI: {}", connection_server, server);
                     
                     let tls_config = crate::transport::TlsConfig {
                         base: crate::transport::TransportConfig {
-                            server: server.clone(),
+                            server: connection_server.clone(),
                             port,
                             timeout: default_timeout,
                             tcp_fast_open: false,
                             tcp_nodelay: true,
                             pool_size: 5,
                         },
-                        server_name: server,
+                        server_name: server, // SNI使用原始域名，确保证书验证正确
                         verify_cert: true,
                     };
-                    resolver.add_tls_transport(tls_config)?;
+                    
+                    println!("[DEBUG] 调用resolver.add_tls_transport...");
+                    match resolver.add_tls_transport(tls_config) {
+                        Ok(_) => println!("[DEBUG] ✅ DoT传输添加成功: {}", spec.name),
+                        Err(e) => {
+                            println!("[DEBUG] ❌ DoT传输添加失败: {} - 错误: {:?}", spec.name, e);
+                            return Err(e);
+                        }
+                    }
                 },
             }
         }
+        
+        println!("[DEBUG] SmartDnsResolver::new - 所有传输创建完成，解析器构建成功");
         
         Ok(Self {
             resolver,
@@ -241,9 +288,8 @@ impl EasyDnsResolver {
                 Err(DnsError::NoUpstreamAvailable)
             }
         } else {
-            // 没有决策引擎，使用基础解析器
-            let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
-            Ok((response, "fifo-fallback".to_string()))
+            // 没有决策引擎，无法执行FIFO策略
+            Err(DnsError::InvalidConfig("FIFO strategy requires decision engine".to_string()))
         }
     }
     
@@ -344,9 +390,8 @@ impl EasyDnsResolver {
                 Err(DnsError::NoUpstreamAvailable)
             }
         } else {
-            // 没有决策引擎，使用基础解析器
-            let response = self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await?;
-            Ok((response, "round-robin-fallback".to_string()))
+            // 没有决策引擎，无法执行Round-robin策略
+            Err(DnsError::InvalidConfig("Round-robin strategy requires decision engine".to_string()))
         }
     }
     
@@ -399,13 +444,13 @@ impl EasyDnsResolver {
     }
     
     /// 获取解析器统计信息
-    pub async fn get_stats(&self) -> ResolverStats {
-        let mut stats = ResolverStats::default();
+    pub async fn get_stats(&self) -> CoreResolverStats {
+        let mut stats = CoreResolverStats::new(self.query_strategy, self.enable_edns);
         
         if let Some(engine) = &self.decision_engine {
             let metrics = engine.get_all_metrics().await;
             stats.total_upstreams = metrics.len();
-            stats.healthy_upstreams = engine.healthy_upstream_count().await;
+            stats.available_upstreams = engine.available_upstream_count().await;
             
             for (name, metric) in metrics {
                 stats.total_queries += metric.total_queries;
@@ -437,9 +482,9 @@ impl EasyDnsResolver {
         }
     }
     
-    /// 获取上游服务器健康状态
-    pub async fn get_upstream_health(&self) -> Vec<UpstreamHealth> {
-        let mut health_list = Vec::new();
+    /// 获取上游状态
+    pub async fn get_upstream_status(&self) -> Vec<UpstreamStatus> {
+        let mut status_list = Vec::new();
         
         if let Some(engine) = &self.decision_engine {
             let upstreams = engine.get_upstreams().await;
@@ -448,11 +493,11 @@ impl EasyDnsResolver {
             for upstream in upstreams {
                 let metric = metrics.get(&upstream.name).cloned().unwrap_or_default();
                 
-                health_list.push(UpstreamHealth {
+                status_list.push(UpstreamStatus {
                     name: upstream.name,
                     server: upstream.server,
                     transport_type: upstream.transport_type,
-                    is_healthy: metric.is_healthy(),
+                    is_available: metric.is_available(),
                     success_rate: metric.success_rate(),
                     avg_latency: metric.avg_latency,
                     consecutive_failures: metric.consecutive_failures,
@@ -462,7 +507,7 @@ impl EasyDnsResolver {
             }
         }
         
-        health_list
+        status_list
     }
     
     /// 获取查询策略
@@ -542,23 +587,24 @@ impl EasyDnsResolver {
     }
 }
 
-impl Clone for EasyDnsResolver {
+impl Clone for SmartDnsResolver {
     fn clone(&self) -> Self {
-        // 由于Resolver包含trait对象，我们需要重新创建一个新的实例
+        // 由于CoreResolver包含trait对象，我们需要重新创建一个新的实例
         // 这里我们使用相同的配置来创建新的解析器
-        let config = crate::resolver::ResolverConfig {
-            strategy: crate::resolver::strategy::QueryStrategy::FastestFirst,
+        let config = crate::resolver::CoreResolverConfig {
+            strategy: crate::builder::strategy::QueryStrategy::Smart,
             default_timeout: std::time::Duration::from_secs(5),
             retry_count: 2,
             enable_cache: true,
             max_cache_ttl: std::time::Duration::from_secs(3600),
-            enable_health_check: true,
-            health_check_interval: std::time::Duration::from_secs(30),
-            default_client_subnet: None,
+            enable_upstream_monitoring: true,
+            upstream_monitoring_interval: std::time::Duration::from_secs(30),
+            default_client_address: None,
             port: 53,
             concurrent_queries: 10,
             recursion_desired: true,
             buffer_size: 4096,
+            enable_stats: true,
             log_level: zerg_creep::logger::LevelFilter::Info,
             enable_dns_log_format: true,
         };
@@ -570,13 +616,13 @@ impl Clone for EasyDnsResolver {
             self.decision_engine.clone(),
             self.query_strategy,
             self.enable_edns,
-        ).expect("Failed to clone EasyDnsResolver")
+        ).expect("Failed to clone SmartDnsResolver")
     }
 }
 
 /// 解析器统计信息
-#[derive(Debug, Clone, Default)]
-pub struct ResolverStats {
+#[derive(Debug, Clone)]
+pub struct CoreResolverStats {
     /// 查询策略
     pub strategy: QueryStrategy,
     
@@ -586,8 +632,8 @@ pub struct ResolverStats {
     /// 总上游服务器数量
     pub total_upstreams: usize,
     
-    /// 健康的上游服务器数量
-    pub healthy_upstreams: usize,
+    /// 可用的上游服务器数量 - 修正术语，更准确描述服务器可用性
+    pub available_upstreams: usize,
     
     /// 总查询次数
     pub total_queries: u64,
@@ -611,7 +657,24 @@ pub struct ResolverStats {
     pub slowest_upstream: Option<String>,
 }
 
-impl ResolverStats {
+impl CoreResolverStats {
+    /// 创建新的统计信息
+    pub fn new(strategy: QueryStrategy, edns_enabled: bool) -> Self {
+        Self {
+            strategy,
+            edns_enabled,
+            total_upstreams: 0,
+            available_upstreams: 0,
+            total_queries: 0,
+            successful_queries: 0,
+            failed_queries: 0,
+            min_latency: std::time::Duration::from_millis(0),
+            max_latency: std::time::Duration::from_millis(0),
+            fastest_upstream: None,
+            slowest_upstream: None,
+        }
+    }
+    
     /// 计算总体成功率
     pub fn success_rate(&self) -> f64 {
         if self.total_queries == 0 {
@@ -631,9 +694,9 @@ impl ResolverStats {
     }
 }
 
-/// 上游服务器健康状态
+/// 上游服务器状态
 #[derive(Debug, Clone)]
-pub struct UpstreamHealth {
+pub struct UpstreamStatus {
     /// 服务器名称
     pub name: String,
     
@@ -643,8 +706,8 @@ pub struct UpstreamHealth {
     /// 传输类型
     pub transport_type: crate::upstream_handler::UpstreamType,
     
-    /// 是否健康
-    pub is_healthy: bool,
+    /// 服务器可用性状态 - 修正术语，更准确描述服务器可用性
+    pub is_available: bool,
     
     /// 成功率
     pub success_rate: f64,

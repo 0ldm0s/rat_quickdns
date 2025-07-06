@@ -67,8 +67,8 @@ impl PerformanceMetrics {
         1.0 - self.success_rate()
     }
     
-    /// 是否健康（基于连续失败次数）
-    pub fn is_healthy(&self) -> bool {
+    /// 是否可用（基于连续失败次数）- 修正术语，更准确描述服务器可用性
+    pub fn is_available(&self) -> bool {
         self.consecutive_failures < 5
     }
     
@@ -126,7 +126,7 @@ impl PerformanceMetrics {
         let success_weight = 0.4;
         let latency_weight = 0.3;
         let cdn_weight = 0.2;
-        let health_weight = 0.1;
+        let availability_weight = 0.1;
         
         let success_score = self.success_rate();
         
@@ -138,11 +138,11 @@ impl PerformanceMetrics {
         
         let cdn_score = self.cdn_accuracy_score;
         
-        let health_score = if self.is_healthy() { 1.0 } else { 0.0 };
+        let availability_score = if self.is_available() { 1.0 } else { 0.0 };
         
         success_score * success_weight
             + latency_score * latency_weight
             + cdn_score * cdn_weight
-            + health_score * health_weight
+            + availability_score * availability_weight
     }
 }

@@ -22,10 +22,19 @@ impl TcpTransport {
         Self { config }
     }
     
-    /// 使用默认配置创建TCP传输
-    pub fn default() -> Self {
-        Self::new(TransportConfig::default())
-    }
+    // 注意：移除了 default() 方法，因为它依赖兜底配置
+    // 用户现在必须明确提供 TransportConfig，不能依赖隐式默认值
+    // 
+    // 迁移示例：
+    // 旧代码: TcpTransport::default()
+    // 新代码: TcpTransport::new(TransportConfig {
+    //     server: "your-dns-server.com".to_string(),
+    //     port: 53,
+    //     timeout: Duration::from_secs(5),
+    //     tcp_fast_open: false,
+    //     tcp_nodelay: true,
+    //     pool_size: 10,
+    // })
     
     /// 序列化DNS请求为TCP格式(带长度前缀)
     fn serialize_request_tcp(request: &Request) -> Result<Vec<u8>> {
@@ -69,6 +78,8 @@ impl TcpTransport {
 #[async_trait]
 impl Transport for TcpTransport {
     async fn send(&self, request: &Request) -> Result<Response> {
+        use crate::dns_debug;
+        dns_debug!("TCP请求开始: {} -> {}:{}", request.query.name, self.config.server, self.config.port);
         let server_addr = format!("{}:{}", self.config.server, self.config.port);
         
         // 建立TCP连接

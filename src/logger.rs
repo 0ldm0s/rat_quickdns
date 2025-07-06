@@ -123,6 +123,13 @@ macro_rules! dns_info {
 }
 
 #[macro_export]
+macro_rules! dns_warn {
+    ($($arg:tt)*) => {
+        $crate::warn!($($arg)*);
+    };
+}
+
+#[macro_export]
 macro_rules! dns_transport {
     ($($arg:tt)*) => {
         $crate::info!($($arg)*);

@@ -1,6 +1,6 @@
 [package]
 name = "rat_quickdns"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["0ldm0s <oldmos@gmail.com>"]
 description = "A high-performance, feature-rich DNS client library with support for multiple transport protocols, load balancing, caching, and filtering"
@@ -29,13 +29,13 @@ bincode = "2.0"
 hyper = { version = "1.0", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client", "http1", "http2"] }
 hyper-rustls = "0.26"
-reqwest = { version = "0.11", features = ["json"], optional = true }
+reqwest = { version = "0.11", features = ["json"] }
 
 # TLS support
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
-tokio-rustls = { version = "0.24", optional = true }
-rustls-native-certs = { version = "0.6", optional = true }
-webpki-roots = { version = "0.25", optional = true }
+tokio-rustls = { version = "0.24" }
+rustls-native-certs = { version = "0.6" }
+webpki-roots = { version = "0.25" }
 ring = "0.16"
 native-tls = "0.2"
 
@@ -91,9 +91,7 @@ fxhash = "0.2"
 pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
 
 [features]
-default = ["tokio-rustls", "reqwest", "dep:rustls-native-certs", "dep:webpki-roots"]
-tokio-rustls = ["dep:tokio-rustls", "dep:rustls-native-certs", "dep:webpki-roots"]
-reqwest = ["dep:reqwest"]
+default = []
 python-bindings = ["pyo3"]
 
 [dev-dependencies]

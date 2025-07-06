@@ -20,8 +20,8 @@ pub struct DnsQueryRequest {
     /// 是否启用EDNS
     pub enable_edns: bool,
     
-    /// 客户端子网信息（用于CDN优化）
-    pub client_subnet: Option<String>,
+    /// 客户端地址信息（用于CDN优化）
+    pub client_address: Option<String>,
     
     /// 查询超时时间（毫秒）
     pub timeout_ms: Option<u64>,
@@ -41,7 +41,7 @@ impl DnsQueryRequest {
             domain: domain.into(),
             record_type,
             enable_edns: true,
-            client_subnet: None,
+            client_address: None,
             timeout_ms: None,
             disable_cache: false,
             enable_dnssec: false,
@@ -54,9 +54,9 @@ impl DnsQueryRequest {
         self
     }
     
-    /// 设置客户端子网
-    pub fn with_client_subnet(mut self, subnet: impl Into<String>) -> Self {
-        self.client_subnet = Some(subnet.into());
+    /// 设置客户端地址
+    pub fn with_client_address(mut self, address: impl Into<String>) -> Self {
+        self.client_address = Some(address.into());
         self
     }
     

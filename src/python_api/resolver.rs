@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
-use crate::builder::EasyDnsResolver;
+use crate::builder::SmartDnsResolver;
 use crate::builder::types::{DnsQueryRequest, DnsRecordType};
 use crate::builder::strategy::QueryStrategy;
 use super::types::{PyQueryStrategy, PyDnsResult, PyEmergencyResponseInfo};
@@ -23,7 +23,7 @@ use super::types::{PyQueryStrategy, PyDnsResult, PyEmergencyResponseInfo};
 ///     ['93.184.216.34']
 #[pyclass(name = "DnsResolver")]
 pub struct PyDnsResolver {
-    inner: Arc<EasyDnsResolver>,
+    inner: Arc<SmartDnsResolver>,
     runtime: Arc<Runtime>,
 }
 
@@ -289,7 +289,7 @@ impl PyDnsResolver {
         dict.set_item("successful_queries", stats.successful_queries)?;
         dict.set_item("failed_queries", stats.failed_queries)?;
         dict.set_item("total_upstreams", stats.total_upstreams)?;
-        dict.set_item("healthy_upstreams", stats.healthy_upstreams)?;
+        dict.set_item("available_upstreams", stats.available_upstreams)?;
         dict.set_item("strategy", format!("{:?}", stats.strategy))?;
         dict.set_item("edns_enabled", stats.edns_enabled)?;
         
@@ -385,9 +385,22 @@ impl PyDnsResolver {
     }
 }
 
+impl Drop for PyDnsResolver {
+    fn drop(&mut self) {
+        // 确保Runtime被正确关闭，避免死锁
+        // 由于Runtime是Arc包装的，我们需要检查是否是最后一个引用
+        if Arc::strong_count(&self.runtime) == 1 {
+            // 这是最后一个引用，可以安全关闭Runtime
+            if let Ok(runtime) = Arc::try_unwrap(std::mem::replace(&mut self.runtime, Arc::new(Runtime::new().unwrap()))) {
+                runtime.shutdown_background();
+            }
+        }
+    }
+}
+
 impl PyDnsResolver {
     /// 创建新的Python DNS解析器实例
-    pub fn new(resolver: EasyDnsResolver) -> Self {
+    pub fn new(resolver: SmartDnsResolver) -> Self {
         let runtime = Runtime::new().expect("Failed to create Tokio runtime");
         
         Self {
@@ -397,7 +410,7 @@ impl PyDnsResolver {
     }
     
     /// 获取内部解析器的引用
-    pub fn inner(&self) -> &EasyDnsResolver {
+    pub fn inner(&self) -> &SmartDnsResolver {
         &self.inner
     }
 }

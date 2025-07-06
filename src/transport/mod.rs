@@ -47,18 +47,20 @@ pub struct TransportConfig {
     pub pool_size: usize,
 }
 
-impl Default for TransportConfig {
-    fn default() -> Self {
-        Self {
-            server: "8.8.8.8".to_string(),
-            port: 53,
-            timeout: Duration::from_secs(5),
-            tcp_fast_open: false,
-            tcp_nodelay: true,
-            pool_size: 10,
-        }
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认值（如 "8.8.8.8"、端口53、5秒超时）是兜底代码
+// 用户现在必须明确配置所有传输参数
+//
+// 迁移示例：
+// 旧代码: TransportConfig::default()
+// 新代码: TransportConfig {
+//     server: "your-dns-server.com".to_string(),
+//     port: 53,
+//     timeout: Duration::from_secs(5),
+//     tcp_fast_open: false,
+//     tcp_nodelay: true,
+//     pool_size: 10,
+// }
 
 /// HTTPS传输配置
 #[derive(Debug, Clone)]
@@ -82,19 +84,9 @@ pub enum HttpMethod {
     POST,
 }
 
-impl Default for HttpsConfig {
-    fn default() -> Self {
-        Self {
-            base: TransportConfig {
-                port: 443,
-                ..Default::default()
-            },
-            url: "https://cloudflare-dns.com/dns-query".to_string(),
-            method: HttpMethod::POST,
-            user_agent: "RatQuickDNS/1.0".to_string(),
-        }
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认值（如 cloudflare URL、POST方法）是兜底代码
+// 用户现在必须明确配置所有HTTPS参数
 
 /// TLS传输配置
 #[derive(Debug, Clone)]
@@ -107,15 +99,6 @@ pub struct TlsConfig {
     pub verify_cert: bool,
 }
 
-impl Default for TlsConfig {
-    fn default() -> Self {
-        Self {
-            base: TransportConfig {
-                port: 853,
-                ..Default::default()
-            },
-            server_name: "cloudflare-dns.com".to_string(),
-            verify_cert: true,
-        }
-    }
-}
+// 注意：移除了 Default 实现，因为它包含兜底行为
+// 硬编码的默认值（如 cloudflare 服务器名、端口853）是兜底代码
+// 用户现在必须明确配置所有TLS参数
