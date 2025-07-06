@@ -18,7 +18,7 @@ pub mod types;
 pub use strategy::QueryStrategy;
 pub use metrics::PerformanceMetrics;
 pub use engine::SmartDecisionEngine;
-pub use resolver_builder::DnsResolverBuilder;
+pub use resolver_builder::{DnsResolverBuilder, LoggerInitStrategy};
 pub use resolver::SmartDnsResolver;
 pub use types::*;
 

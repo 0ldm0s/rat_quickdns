@@ -74,7 +74,12 @@ pub fn validate_https_url(url: &str) -> Result<()> {
 
 /// 获取用户代理字符串
 pub fn get_user_agent() -> String {
-    format!("RatQuickDNS/{}", env!("CARGO_PKG_VERSION"))
+    // 检查是否在OrniDNS上下文中运行
+    if cfg!(feature = "orni_dns") {
+        format!("OrniDNS/{}", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!("RatQuickDNS/{}", env!("CARGO_PKG_VERSION"))
+    }
 }
 
 #[cfg(test)]

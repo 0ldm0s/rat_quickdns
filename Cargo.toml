@@ -1,13 +1,13 @@
 [package]
 name = "rat_quickdns"
-version = "0.1.1"
-edition = "2021"
+version = "0.1.2"
+edition = "2024"
 authors = ["0ldm0s <oldmos@gmail.com>"]
 description = "A high-performance, feature-rich DNS client library with support for multiple transport protocols, load balancing, caching, and filtering"
 readme = "README.md"
 keywords = ["dns", "networking", "async", "doh", "dot"]
 categories = ["network-programming", "asynchronous"]
-rust-version = "1.70"
+rust-version = "1.85.0"
 
 
 [dependencies]
@@ -93,6 +93,7 @@ pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
 [features]
 default = []
 python-bindings = ["pyo3"]
+orni_dns = []
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -16,6 +16,17 @@ use super::{
     resolver::SmartDnsResolver,
 };
 
+/// 日志初始化策略
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoggerInitStrategy {
+    /// 不初始化日志（让上层应用控制）
+    None,
+    /// 使用静默模式初始化
+    Silent,
+    /// 根据配置的日志级别初始化
+    Auto,
+}
+
 /// DNS解析器构建器
 #[derive(Debug, Clone)]
 pub struct DnsResolverBuilder {
@@ -36,6 +47,9 @@ pub struct DnsResolverBuilder {
     
     /// 当前区域
     current_region: String,
+    
+    /// 日志初始化策略
+    logger_init_strategy: LoggerInitStrategy,
 }
 
 // 注意：移除了 Default 实现，因为它包含兜底行为
@@ -75,6 +89,7 @@ impl DnsResolverBuilder {
             query_strategy,
             enable_edns,
             current_region,
+            logger_init_strategy: LoggerInitStrategy::Auto, // 默认自动模式，保持向后兼容
         }
     }
     
@@ -274,22 +289,61 @@ impl DnsResolverBuilder {
         self
     }
     
+    /// 设置日志初始化策略
+    /// 
+    /// # 参数
+    /// * `strategy` - 日志初始化策略
+    ///   - `LoggerInitStrategy::None`: 不初始化日志，让上层应用完全控制
+    ///   - `LoggerInitStrategy::Silent`: 使用静默模式初始化
+    ///   - `LoggerInitStrategy::Auto`: 根据配置的日志级别自动初始化（默认）
+    pub fn with_logger_init_strategy(mut self, strategy: LoggerInitStrategy) -> Self {
+        self.logger_init_strategy = strategy;
+        self
+    }
+    
+    /// 禁用日志初始化（让上层应用控制）
+    /// 这是 `with_logger_init_strategy(LoggerInitStrategy::None)` 的便捷方法
+    pub fn disable_logger_init(mut self) -> Self {
+        self.logger_init_strategy = LoggerInitStrategy::None;
+        self
+    }
+    
+    /// 使用静默日志初始化
+    /// 这是 `with_logger_init_strategy(LoggerInitStrategy::Silent)` 的便捷方法
+    pub fn with_silent_logger_init(mut self) -> Self {
+        self.logger_init_strategy = LoggerInitStrategy::Silent;
+        self
+    }
+    
     /// 构建解析器
     pub async fn build(self) -> Result<SmartDnsResolver> {
         if self.upstream_manager.get_specs().is_empty() {
             return Err(DnsError::InvalidConfig("No upstream servers configured".to_string()));
         }
         
-        // 初始化日志系统 - 默认禁用日志输出
-        if self.config.log_level == zerg_creep::logger::LevelFilter::Off {
-            // 默认情况：禁用日志输出
-            let _ = crate::logger::init_dns_logger_silent();
-        } else if self.config.enable_dns_log_format {
-            // 用户显式启用了DNS格式日志
-            let _ = crate::logger::init_dns_logger(self.config.log_level);
-        } else {
-            // 用户设置了日志级别但不使用DNS格式
-            let _ = crate::logger::init_dns_logger(self.config.log_level);
+        // 根据策略初始化日志系统
+        match self.logger_init_strategy {
+            LoggerInitStrategy::None => {
+                // 不初始化日志，让上层应用完全控制
+                // 这种情况下，上层应用负责日志初始化
+            },
+            LoggerInitStrategy::Silent => {
+                // 使用静默模式初始化
+                let _ = crate::logger::init_dns_logger_silent();
+            },
+            LoggerInitStrategy::Auto => {
+                // 根据配置自动初始化（原有逻辑）
+                if self.config.log_level == zerg_creep::logger::LevelFilter::Off {
+                    // 日志级别为Off时使用静默模式
+                    let _ = crate::logger::init_dns_logger_silent();
+                } else if self.config.enable_dns_log_format {
+                    // 用户显式启用了DNS格式日志
+                    let _ = crate::logger::init_dns_logger(self.config.log_level);
+                } else {
+                    // 用户设置了日志级别但不使用DNS格式
+                    let _ = crate::logger::init_dns_logger(self.config.log_level);
+                }
+            },
         }
         
         // 验证上游服务器配置

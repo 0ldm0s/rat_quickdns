@@ -27,7 +27,7 @@ pub use builder::resolver::CoreResolverStats;
 pub use error::{DnsError, Result};
 pub use builder::{
     DnsResolverBuilder, SmartDnsResolver, DnsQueryRequest, DnsQueryResponse, DnsRecord,
-    QueryStrategy, PerformanceMetrics, SmartDecisionEngine
+    QueryStrategy, PerformanceMetrics, SmartDecisionEngine, LoggerInitStrategy
 };
 pub use builder::resolver::UpstreamStatus;
 pub use dns_response::{DnsResponseBuilder, DnsResponseWrapper};
