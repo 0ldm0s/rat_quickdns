@@ -270,6 +270,47 @@ impl PyDnsResolverBuilder {
         Ok(())
     }
     
+    /// 启用调试级别日志
+    /// 
+    /// 启用调试级别日志，显示所有调试信息，包括DNS解析过程的详细信息
+    /// 
+    /// Returns:
+    ///     DnsResolverBuilder: 返回自身以支持链式调用
+    /// 
+    /// Example:
+    ///     >>> builder.with_debug_logger_init()
+    pub fn with_debug_logger_init(&mut self) -> PyResult<()> {
+        self.inner = self.inner.clone().with_debug_logger_init();
+        Ok(())
+    }
+    
+    /// 启用静默日志模式
+    /// 
+    /// 禁用所有日志输出，适用于生产环境或需要安静运行的场景
+    /// 
+    /// Returns:
+    ///     DnsResolverBuilder: 返回自身以支持链式调用
+    /// 
+    /// Example:
+    ///     >>> builder.with_silent_logger_init()
+    pub fn with_silent_logger_init(&mut self) -> PyResult<()> {
+        self.inner = self.inner.clone().with_silent_logger_init();
+        Ok(())
+    }
+    
+    /// 启用自动日志初始化
+    /// 
+    /// 根据环境自动选择合适的日志级别
+    /// 
+    /// Returns:
+    ///     DnsResolverBuilder: 返回自身以支持链式调用
+    /// 
+    /// Example:
+    ///     >>> builder.with_auto_logger_init()
+    pub fn with_auto_logger_init(&mut self) -> PyResult<()> {
+        self.inner = self.inner.clone().with_auto_logger_init();
+        Ok(())
+    }
 
     
     // 注意：上游监控间隔在当前版本中不支持配置

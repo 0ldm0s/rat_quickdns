@@ -39,6 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_timeout(Duration::from_secs(5))
     .with_retry_count(2)
+    .with_debug_logger_init()  // 启用调试级别日志
     .add_upstream(UpstreamSpec::udp("阿里DNS".to_string(), "223.5.5.5".to_string()))?
     .add_upstream(UpstreamSpec::udp("腾讯DNS".to_string(), "119.29.29.29".to_string()))?
     .add_upstream(UpstreamSpec::udp("114DNS".to_string(), "114.114.114.114".to_string()))?
@@ -86,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_timeout(Duration::from_secs(5))
     .with_retry_count(2)
+    .with_debug_logger_init()  // 启用调试级别日志
     .add_upstream(UpstreamSpec::udp("阿里DNS".to_string(), "223.5.5.5".to_string()).with_resolved_ip("223.5.5.5".to_string()))?
     .add_upstream(UpstreamSpec::udp("腾讯DNS".to_string(), "119.29.29.29".to_string()).with_resolved_ip("119.29.29.29".to_string()))?
     .add_upstream(UpstreamSpec::udp("114DNS".to_string(), "114.114.114.114".to_string()).with_resolved_ip("114.114.114.114".to_string()))?
@@ -134,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_timeout(Duration::from_secs(5))
     .with_retry_count(2)
+    .with_debug_logger_init()  // 启用调试级别日志
     .add_upstream(UpstreamSpec::udp("Google DNS".to_string(), "8.8.8.8".to_string()).with_resolved_ip("8.8.8.8".to_string()))?
     .add_upstream(UpstreamSpec::udp("Cloudflare DNS".to_string(), "1.1.1.1".to_string()).with_resolved_ip("1.1.1.1".to_string()))?
     .add_upstream(UpstreamSpec::udp("阿里DNS".to_string(), "223.5.5.5".to_string()).with_resolved_ip("223.5.5.5".to_string()))?

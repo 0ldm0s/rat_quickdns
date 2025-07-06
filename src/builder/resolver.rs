@@ -64,17 +64,17 @@ impl SmartDnsResolver {
         let mut resolver = CoreResolver::new(config);
         
         let specs = upstream_manager.get_specs();
-        println!("[DEBUG] SmartDnsResolver::new - 开始处理 {} 个上游服务器", specs.len());
+        dns_debug!("SmartDnsResolver::new - 开始处理 {} 个上游服务器", specs.len());
         
         // 根据上游管理器配置添加传输协议
         for spec in specs {
             match spec.transport_type {
                 crate::upstream_handler::UpstreamType::Udp => {
-                    println!("[DEBUG] 开始创建UDP传输: {} ({})", spec.name, spec.server);
+                    dns_debug!("开始创建UDP传输: {} ({})", spec.name, spec.server);
                     
                     // 使用公共函数解析服务器地址和端口
                     let (server, port) = parse_simple_server_address(&spec.server, 53);
-                    println!("[DEBUG] UDP地址解析: server={}, port={}", server, port);
+                    dns_debug!("UDP地址解析: server={}, port={}", server, port);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -85,14 +85,14 @@ impl SmartDnsResolver {
                         pool_size: 10,
                     };
                     resolver.add_udp_transport(transport_config);
-                    println!("[DEBUG] ✅ UDP传输添加成功: {}", spec.name);
+                    dns_debug!("✅ UDP传输添加成功: {}", spec.name);
                 },
                 crate::upstream_handler::UpstreamType::Tcp => {
-                    println!("[DEBUG] 开始创建TCP传输: {} ({})", spec.name, spec.server);
+                    dns_debug!("开始创建TCP传输: {} ({})", spec.name, spec.server);
                     
                     // 使用公共函数解析服务器地址和端口
                     let (server, port) = parse_simple_server_address(&spec.server, 53);
-                    println!("[DEBUG] TCP地址解析: server={}, port={}", server, port);
+                    dns_debug!("TCP地址解析: server={}, port={}", server, port);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -103,10 +103,10 @@ impl SmartDnsResolver {
                         pool_size: 10,
                     };
                     resolver.add_tcp_transport(transport_config);
-                    println!("[DEBUG] ✅ TCP传输添加成功: {}", spec.name);
+                    dns_debug!("✅ TCP传输添加成功: {}", spec.name);
                 },
                 crate::upstream_handler::UpstreamType::DoH => {
-                    println!("[DEBUG] 开始创建DoH传输: {} ({})", spec.name, spec.server);
+                    dns_debug!("开始创建DoH传输: {} ({})", spec.name, spec.server);
                     
                     // 验证HTTPS URL格式
                     if !spec.server.starts_with("https://") {
@@ -115,11 +115,11 @@ impl SmartDnsResolver {
                     
                     // 使用公共函数从URL中解析主机名和端口
                     let (hostname, port) = parse_url_components(&spec.server)?;
-                    println!("[DEBUG] DoH URL解析: hostname={}, port={}", hostname, port);
+                    dns_debug!("DoH URL解析: hostname={}, port={}", hostname, port);
                     
                     // 优先使用预解析的IP地址进行连接
                     let connection_server = spec.resolved_ip.as_ref().unwrap_or(&hostname);
-                    println!("[DEBUG] DoH连接服务器: {}", connection_server);
+                    dns_debug!("DoH连接服务器: {}", connection_server);
                     
                     let https_config = crate::transport::HttpsConfig {
                         base: crate::transport::TransportConfig {
@@ -135,25 +135,25 @@ impl SmartDnsResolver {
                         user_agent: get_user_agent(),
                     };
                     
-                    println!("[DEBUG] 调用resolver.add_https_transport...");
+                    dns_debug!("调用resolver.add_https_transport...");
                     match resolver.add_https_transport(https_config) {
-                        Ok(_) => println!("[DEBUG] ✅ DoH传输添加成功: {}", spec.name),
+                        Ok(_) => dns_debug!("✅ DoH传输添加成功: {}", spec.name),
                         Err(e) => {
-                            println!("[DEBUG] ❌ DoH传输添加失败: {} - 错误: {:?}", spec.name, e);
+                            dns_debug!("❌ DoH传输添加失败: {} - 错误: {:?}", spec.name, e);
                             return Err(e);
                         }
                     }
                 },
                 crate::upstream_handler::UpstreamType::DoT => {
-                    println!("[DEBUG] 开始创建DoT传输: {} ({})", spec.name, spec.server);
+                    dns_debug!("开始创建DoT传输: {} ({})", spec.name, spec.server);
                     
                     // 使用公共函数解析服务器地址和端口
                     let (server, port) = parse_simple_server_address(&spec.server, 853);
-                    println!("[DEBUG] DoT地址解析: server={}, port={}", server, port);
+                    dns_debug!("DoT地址解析: server={}, port={}", server, port);
                     
                     // 优先使用预解析的IP地址进行连接，但SNI必须使用原始域名
                     let connection_server = spec.resolved_ip.as_ref().unwrap_or(&server);
-                    println!("[DEBUG] DoT连接服务器: {}, SNI: {}", connection_server, server);
+                    dns_debug!("DoT连接服务器: {}, SNI: {}", connection_server, server);
                     
                     let tls_config = crate::transport::TlsConfig {
                         base: crate::transport::TransportConfig {
@@ -168,11 +168,11 @@ impl SmartDnsResolver {
                         verify_cert: true,
                     };
                     
-                    println!("[DEBUG] 调用resolver.add_tls_transport...");
+                    dns_debug!("调用resolver.add_tls_transport...");
                     match resolver.add_tls_transport(tls_config) {
-                        Ok(_) => println!("[DEBUG] ✅ DoT传输添加成功: {}", spec.name),
+                        Ok(_) => dns_debug!("✅ DoT传输添加成功: {}", spec.name),
                         Err(e) => {
-                            println!("[DEBUG] ❌ DoT传输添加失败: {} - 错误: {:?}", spec.name, e);
+                            dns_debug!("❌ DoT传输添加失败: {} - 错误: {:?}", spec.name, e);
                             return Err(e);
                         }
                     }
@@ -180,7 +180,7 @@ impl SmartDnsResolver {
             }
         }
         
-        println!("[DEBUG] SmartDnsResolver::new - 所有传输创建完成，解析器构建成功");
+        dns_debug!("SmartDnsResolver::new - 所有传输创建完成，解析器构建成功");
         
         Ok(Self {
             resolver,

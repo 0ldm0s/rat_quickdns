@@ -23,6 +23,8 @@ pub enum LoggerInitStrategy {
     None,
     /// 使用静默模式初始化
     Silent,
+    /// 启用调试级别日志（显示所有调试信息）
+    Debug,
     /// 根据配置的日志级别初始化
     Auto,
 }
@@ -295,6 +297,7 @@ impl DnsResolverBuilder {
     /// * `strategy` - 日志初始化策略
     ///   - `LoggerInitStrategy::None`: 不初始化日志，让上层应用完全控制
     ///   - `LoggerInitStrategy::Silent`: 使用静默模式初始化
+    ///   - `LoggerInitStrategy::Debug`: 启用调试级别日志，显示所有调试信息
     ///   - `LoggerInitStrategy::Auto`: 根据配置的日志级别自动初始化（默认）
     pub fn with_logger_init_strategy(mut self, strategy: LoggerInitStrategy) -> Self {
         self.logger_init_strategy = strategy;
@@ -315,6 +318,21 @@ impl DnsResolverBuilder {
         self
     }
     
+    /// 启用调试级别日志初始化
+    /// 这是 `with_logger_init_strategy(LoggerInitStrategy::Debug)` 的便捷方法
+    /// 将显示所有调试信息，包括传输创建、地址解析等详细日志
+    pub fn with_debug_logger_init(mut self) -> Self {
+        self.logger_init_strategy = LoggerInitStrategy::Debug;
+        self
+    }
+    
+    /// 启用自动日志初始化
+    /// 这是 `with_logger_init_strategy(LoggerInitStrategy::Auto)` 的便捷方法
+    pub fn with_auto_logger_init(mut self) -> Self {
+        self.logger_init_strategy = LoggerInitStrategy::Auto;
+        self
+    }
+    
     /// 构建解析器
     pub async fn build(self) -> Result<SmartDnsResolver> {
         if self.upstream_manager.get_specs().is_empty() {
@@ -330,6 +348,10 @@ impl DnsResolverBuilder {
             LoggerInitStrategy::Silent => {
                 // 使用静默模式初始化
                 let _ = crate::logger::init_dns_logger_silent();
+            },
+            LoggerInitStrategy::Debug => {
+                // 启用调试级别日志，显示所有调试信息
+                let _ = crate::logger::init_dns_logger(zerg_creep::logger::LevelFilter::Debug);
             },
             LoggerInitStrategy::Auto => {
                 // 根据配置自动初始化（原有逻辑）

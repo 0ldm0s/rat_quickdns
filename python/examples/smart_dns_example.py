@@ -11,6 +11,7 @@ DnsResolverBuilder 统一架构示例
 - 多种查询策略：FIFO、Smart、RoundRobin
 - 自动健康检查和性能监控
 - 详细的统计信息和日志输出
+- 调试级别日志支持，显示DNS解析过程的详细信息
 
 对应Rust版本: examples/smart_dns_example.rs
 """
@@ -46,6 +47,7 @@ class SmartDnsDemo:
         # 创建FIFO策略解析器
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.FIFO)
+        builder.with_debug_logger_init()  # 启用调试级别日志
         # builder.enable_edns(True)  # 可能在当前版本中不可用
         builder.add_udp_upstream("Google DNS", "8.8.8.8:53")
         builder.add_udp_upstream("Cloudflare DNS", "1.1.1.1:53")
@@ -73,6 +75,7 @@ class SmartDnsDemo:
         # 创建智能策略解析器
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.SMART)  # 现在SMART策略已修复
+        builder.with_debug_logger_init()  # 启用调试级别日志
         builder.enable_edns(True)  # 启用EDNS支持
         builder.region("CN")  # 设置区域为中国
         builder.add_udp_upstream("Google DNS", "8.8.8.8:53")
@@ -107,6 +110,7 @@ class SmartDnsDemo:
         # 创建混合协议解析器
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.SMART)
+        builder.with_debug_logger_init()  # 启用调试级别日志
         builder.enable_edns(True)
         builder.region("global")
         
@@ -144,6 +148,7 @@ class SmartDnsDemo:
         # 创建轮询策略解析器
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.ROUND_ROBIN)
+        builder.with_debug_logger_init()  # 启用调试级别日志
         builder.enable_edns(True)
         builder.region("global")
         
@@ -223,9 +228,71 @@ class SmartDnsDemo:
                 elapsed = (time.time() - start_time) * 1000
                 print(f"  查询失败: {e} (耗时: {elapsed:.2f}ms)")
     
+    def test_logger_levels(self):
+        """测试不同的日志级别"""
+        print("\n7. 测试不同的日志级别")
+        
+        # 测试调试级别日志
+        print("\n7.1 测试调试级别日志（显示详细信息）:")
+        builder = dns.DnsResolverBuilder()
+        builder.query_strategy(QueryStrategy.FIFO)
+        builder.with_debug_logger_init()  # 启用调试级别日志
+        builder.add_udp_upstream("Google DNS", "8.8.8.8")
+        builder.timeout(3.0)
+        debug_resolver = builder.build()
+        
+        try:
+            result = debug_resolver.resolve_a("example.com")
+            print(f"调试模式解析结果: {result}")
+        except Exception as e:
+            print(f"调试模式解析失败: {e}")
+        
+        del debug_resolver
+        import gc
+        gc.collect()
+        time.sleep(0.1)
+        
+        # 测试静默模式
+        print("\n7.2 测试静默模式（无日志输出）:")
+        builder = dns.DnsResolverBuilder()
+        builder.query_strategy(QueryStrategy.FIFO)
+        builder.with_silent_logger_init()  # 启用静默模式
+        builder.add_udp_upstream("Google DNS", "8.8.8.8")
+        builder.timeout(3.0)
+        silent_resolver = builder.build()
+        
+        try:
+            result = silent_resolver.resolve_a("example.com")
+            print(f"静默模式解析结果: {result}")
+        except Exception as e:
+            print(f"静默模式解析失败: {e}")
+        
+        del silent_resolver
+        gc.collect()
+        time.sleep(0.1)
+        
+        # 测试自动模式
+        print("\n7.3 测试自动模式（根据环境自动选择）:")
+        builder = dns.DnsResolverBuilder()
+        builder.query_strategy(QueryStrategy.FIFO)
+        builder.with_auto_logger_init()  # 启用自动模式
+        builder.add_udp_upstream("Google DNS", "8.8.8.8")
+        builder.timeout(3.0)
+        auto_resolver = builder.build()
+        
+        try:
+            result = auto_resolver.resolve_a("example.com")
+            print(f"自动模式解析结果: {result}")
+        except Exception as e:
+            print(f"自动模式解析失败: {e}")
+        
+        del auto_resolver
+        gc.collect()
+        time.sleep(0.1)
+    
     def test_convenience_functions(self):
         """测试便捷函数"""
-        print("\n7. 测试便捷函数")
+        print("\n8. 测试便捷函数")
         
         # 注意：便捷函数可能在当前版本中不可用
         print("注意：便捷函数已被移除，请使用构建器模式创建解析器")
@@ -234,6 +301,7 @@ class SmartDnsDemo:
         # 使用标准解析器进行演示
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.FIFO)
+        builder.with_debug_logger_init()  # 启用调试级别日志
         builder.add_udp_upstream("Google DNS", "8.8.8.8")
         builder.timeout(3.0)
         resolver = builder.build()
@@ -261,6 +329,8 @@ class SmartDnsDemo:
         print("- 多域名查询: 支持多个域名的顺序查询")
         print("- 便捷函数: 提供快速解析和批量解析功能")
         print("- 统一接口: 所有协议(UDP/DoH/DoT)使用相同的构建方式")
+        print("- 调试日志: 支持调试级别日志，显示DNS解析的详细过程")
+        print("- 日志控制: 支持静默模式、自动模式和调试模式的日志级别控制")
     
     def run_demo(self):
         """运行完整的演示"""
@@ -315,11 +385,15 @@ class SmartDnsDemo:
             gc.collect()
             time.sleep(0.1)
             
-            # 7. 测试便捷函数
-            print("\n=== 测试7: 便捷函数 ===")
+            # 7. 测试日志级别
+            print("\n=== 测试7: 日志级别 ===")
+            self.test_logger_levels()
+            
+            # 8. 测试便捷函数
+            print("\n=== 测试8: 便捷函数 ===")
             self.test_convenience_functions()
             
-            # 8. 打印总结
+            # 9. 打印总结
             self.print_summary()
             
         except Exception as e:
