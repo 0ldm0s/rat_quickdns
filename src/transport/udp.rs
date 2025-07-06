@@ -33,7 +33,7 @@ impl UdpTransport {
     async fn create_windows_socket(&self) -> Result<UdpSocket> {
         use std::net::SocketAddr;
         
-        dns_transport!("Windows平台：开始创建UDP socket");
+        dns_debug!("Windows平台：开始创建UDP socket");
         
         // Windows平台尝试多种绑定策略
         let bind_addresses = [
@@ -48,7 +48,7 @@ impl UdpTransport {
             dns_debug!("尝试绑定地址: {}", addr);
             match UdpSocket::bind(addr).await {
                 Ok(socket) => {
-                    dns_info!("成功绑定到地址: {}", addr);
+                    dns_debug!("成功绑定到地址: {}", addr);
                     // 成功绑定，返回socket
                     return Ok(socket);
                 }

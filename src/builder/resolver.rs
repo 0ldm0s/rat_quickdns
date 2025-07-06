@@ -11,6 +11,7 @@ use crate::resolver::{CoreResolverConfig, CoreResolver};
 use crate::upstream_handler::UpstreamManager;
 use crate::utils::{parse_simple_server_address, parse_url_components, get_user_agent};
 use crate::error::{DnsError, Result};
+use crate::{dns_info, dns_debug};
 use super::{
     strategy::QueryStrategy,
     engine::SmartDecisionEngine,
@@ -39,6 +40,15 @@ pub struct SmartDnsResolver {
     enable_edns: bool,
 }
 
+impl Drop for SmartDnsResolver {
+    fn drop(&mut self) {
+        dns_info!("Dropping SmartDnsResolver, cleaning up resources...");
+        // 注意：由于异步任务的特性，我们无法在Drop中直接取消它们
+        // 但我们可以记录清理日志，帮助调试
+        dns_debug!("SmartDnsResolver dropped with {} transports", self.resolver.transport_count());
+    }
+}
+
 impl SmartDnsResolver {
     /// 创建新的DNS解析器
     pub(super) fn new(
@@ -53,12 +63,18 @@ impl SmartDnsResolver {
         let default_timeout = config.default_timeout;
         let mut resolver = CoreResolver::new(config);
         
+        let specs = upstream_manager.get_specs();
+        println!("[DEBUG] SmartDnsResolver::new - 开始处理 {} 个上游服务器", specs.len());
+        
         // 根据上游管理器配置添加传输协议
-        for spec in upstream_manager.get_specs() {
+        for spec in specs {
             match spec.transport_type {
                 crate::upstream_handler::UpstreamType::Udp => {
+                    println!("[DEBUG] 开始创建UDP传输: {} ({})", spec.name, spec.server);
+                    
                     // 使用公共函数解析服务器地址和端口
                     let (server, port) = parse_simple_server_address(&spec.server, 53);
+                    println!("[DEBUG] UDP地址解析: server={}, port={}", server, port);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -69,10 +85,14 @@ impl SmartDnsResolver {
                         pool_size: 10,
                     };
                     resolver.add_udp_transport(transport_config);
+                    println!("[DEBUG] ✅ UDP传输添加成功: {}", spec.name);
                 },
                 crate::upstream_handler::UpstreamType::Tcp => {
+                    println!("[DEBUG] 开始创建TCP传输: {} ({})", spec.name, spec.server);
+                    
                     // 使用公共函数解析服务器地址和端口
                     let (server, port) = parse_simple_server_address(&spec.server, 53);
+                    println!("[DEBUG] TCP地址解析: server={}, port={}", server, port);
                     
                     let transport_config = crate::transport::TransportConfig {
                         server,
@@ -83,8 +103,11 @@ impl SmartDnsResolver {
                         pool_size: 10,
                     };
                     resolver.add_tcp_transport(transport_config);
+                    println!("[DEBUG] ✅ TCP传输添加成功: {}", spec.name);
                 },
                 crate::upstream_handler::UpstreamType::DoH => {
+                    println!("[DEBUG] 开始创建DoH传输: {} ({})", spec.name, spec.server);
+                    
                     // 验证HTTPS URL格式
                     if !spec.server.starts_with("https://") {
                         return Err(DnsError::InvalidConfig("DoH server must be HTTPS URL".to_string()));
@@ -92,9 +115,11 @@ impl SmartDnsResolver {
                     
                     // 使用公共函数从URL中解析主机名和端口
                     let (hostname, port) = parse_url_components(&spec.server)?;
+                    println!("[DEBUG] DoH URL解析: hostname={}, port={}", hostname, port);
                     
                     // 优先使用预解析的IP地址进行连接
                     let connection_server = spec.resolved_ip.as_ref().unwrap_or(&hostname);
+                    println!("[DEBUG] DoH连接服务器: {}", connection_server);
                     
                     let https_config = crate::transport::HttpsConfig {
                         base: crate::transport::TransportConfig {
@@ -109,14 +134,26 @@ impl SmartDnsResolver {
                         method: crate::transport::HttpMethod::POST,
                         user_agent: get_user_agent(),
                     };
-                    resolver.add_https_transport(https_config)?;
+                    
+                    println!("[DEBUG] 调用resolver.add_https_transport...");
+                    match resolver.add_https_transport(https_config) {
+                        Ok(_) => println!("[DEBUG] ✅ DoH传输添加成功: {}", spec.name),
+                        Err(e) => {
+                            println!("[DEBUG] ❌ DoH传输添加失败: {} - 错误: {:?}", spec.name, e);
+                            return Err(e);
+                        }
+                    }
                 },
                 crate::upstream_handler::UpstreamType::DoT => {
+                    println!("[DEBUG] 开始创建DoT传输: {} ({})", spec.name, spec.server);
+                    
                     // 使用公共函数解析服务器地址和端口
                     let (server, port) = parse_simple_server_address(&spec.server, 853);
+                    println!("[DEBUG] DoT地址解析: server={}, port={}", server, port);
                     
                     // 优先使用预解析的IP地址进行连接，但SNI必须使用原始域名
                     let connection_server = spec.resolved_ip.as_ref().unwrap_or(&server);
+                    println!("[DEBUG] DoT连接服务器: {}, SNI: {}", connection_server, server);
                     
                     let tls_config = crate::transport::TlsConfig {
                         base: crate::transport::TransportConfig {
@@ -130,10 +167,20 @@ impl SmartDnsResolver {
                         server_name: server, // SNI使用原始域名，确保证书验证正确
                         verify_cert: true,
                     };
-                    resolver.add_tls_transport(tls_config)?;
+                    
+                    println!("[DEBUG] 调用resolver.add_tls_transport...");
+                    match resolver.add_tls_transport(tls_config) {
+                        Ok(_) => println!("[DEBUG] ✅ DoT传输添加成功: {}", spec.name),
+                        Err(e) => {
+                            println!("[DEBUG] ❌ DoT传输添加失败: {} - 错误: {:?}", spec.name, e);
+                            return Err(e);
+                        }
+                    }
                 },
             }
         }
+        
+        println!("[DEBUG] SmartDnsResolver::new - 所有传输创建完成，解析器构建成功");
         
         Ok(Self {
             resolver,

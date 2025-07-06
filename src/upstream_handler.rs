@@ -6,6 +6,7 @@ use crate::{
     transport::{Transport, TransportConfig, HttpsConfig, TlsConfig},
     utils::{parse_server_address, parse_url_components, get_user_agent},
     Result, DnsError,
+    dns_info, dns_debug,
 };
 use std::{
     collections::HashMap,
@@ -277,6 +278,8 @@ impl UpstreamManager {
     
     /// 添加上游服务器
     pub fn add_upstream(&mut self, spec: UpstreamSpec) -> Result<()> {
+        dns_info!("Adding upstream server: {} ({:?}) -> {}", spec.name, spec.transport_type, spec.server);
+        
         // 验证规格
         if let Some(handler) = self.handlers.get(&spec.transport_type) {
             handler.validate_spec(&spec)?;
@@ -287,6 +290,7 @@ impl UpstreamManager {
         }
         
         self.specs.push(spec);
+        dns_debug!("Successfully added upstream server, total count: {}", self.specs.len());
         Ok(())
     }
     

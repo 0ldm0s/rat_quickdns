@@ -385,6 +385,19 @@ impl PyDnsResolver {
     }
 }
 
+impl Drop for PyDnsResolver {
+    fn drop(&mut self) {
+        // 确保Runtime被正确关闭，避免死锁
+        // 由于Runtime是Arc包装的，我们需要检查是否是最后一个引用
+        if Arc::strong_count(&self.runtime) == 1 {
+            // 这是最后一个引用，可以安全关闭Runtime
+            if let Ok(runtime) = Arc::try_unwrap(std::mem::replace(&mut self.runtime, Arc::new(Runtime::new().unwrap()))) {
+                runtime.shutdown_background();
+            }
+        }
+    }
+}
+
 impl PyDnsResolver {
     /// 创建新的Python DNS解析器实例
     pub fn new(resolver: SmartDnsResolver) -> Self {

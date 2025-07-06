@@ -14,9 +14,7 @@ fn rat_quickdns_py(py: Python, m: &PyModule) -> PyResult<()> {
     // 调用主模块的初始化函数
     rat_quickdns::python_api::init_python_module(py, m)?;
     
-    // 添加便捷函数
-    m.add_function(wrap_pyfunction!(utils::quick_resolve, m)?)?;
-    m.add_function(wrap_pyfunction!(utils::batch_resolve, m)?)?;
+    // 便捷函数已被移除，请使用构建器模式创建解析器
     
     // 添加工具函数
     m.add_function(wrap_pyfunction!(utils::is_valid_ip, m)?)?;

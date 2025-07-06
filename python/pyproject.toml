@@ -32,7 +32,6 @@ Documentation = "https://github.com/0ldm0s/rat_quickdns/blob/main/README.md"
 
 [tool.maturin]
 module-name = "rat_quickdns_py"
-features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

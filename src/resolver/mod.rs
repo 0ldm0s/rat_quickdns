@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use std::net::IpAddr;
 use tokio::time::timeout;
 use std::collections::HashMap;
-use crate::{dns_debug, dns_info, dns_error, dns_transport};
+use crate::{dns_debug, dns_info, dns_error, dns_transport, dns_warn};
 
 pub mod cache;
 pub mod health;
@@ -186,15 +186,21 @@ impl CoreResolver {
     
     /// 添加TLS传输
     pub fn add_tls_transport(&mut self, config: TlsConfig) -> Result<()> {
+        dns_info!("🔒 添加DoT传输: {}:{}", config.base.server, config.base.port);
         let transport = Arc::new(TlsTransport::new(config)?);
-        self.transports.push(transport);
+        self.transports.push(transport.clone());
+        dns_info!("🔒 DoT传输已添加，当前传输总数: {}", self.transports.len());
+        dns_debug!("新添加的传输类型: {}", transport.transport_type());
         Ok(())
     }
     
     /// 添加HTTPS传输
     pub fn add_https_transport(&mut self, config: HttpsConfig) -> Result<()> {
+        dns_info!("🌐 添加DoH传输: {}", config.url);
         let transport = Arc::new(HttpsTransport::new(config)?);
-        self.transports.push(transport);
+        self.transports.push(transport.clone());
+        dns_info!("🌐 DoH传输已添加，当前传输总数: {}", self.transports.len());
+        dns_debug!("新添加的传输类型: {}", transport.transport_type());
         Ok(())
     }
     
@@ -277,6 +283,14 @@ impl CoreResolver {
             return Err(DnsError::Config("No transports configured".to_string()));
         }
         
+        dns_info!("🔍 开始DNS查询: {} (类型: {:?}), 策略: {:?}, 可用传输: {}", 
+                 request.query.name, request.query.qtype, self.strategy, self.transports.len());
+        
+        // 打印所有可用传输的类型
+        for (i, transport) in self.transports.iter().enumerate() {
+            dns_debug!("传输[{}]: {}", i, transport.transport_type());
+        }
+        
         match self.strategy {
             QueryStrategy::Fifo => self.query_fastest_first(request).await,
             QueryStrategy::Smart => self.query_smart_decision(request).await,
@@ -293,6 +307,11 @@ impl CoreResolver {
         
         if available_transports.is_empty() {
             return Err(DnsError::Server("No available transports".to_string()));
+        }
+        
+        dns_info!("⚡ 使用最快优先策略，并发查询 {} 个传输", available_transports.len());
+        for (i, transport) in available_transports.iter().enumerate() {
+            dns_debug!("并发传输[{}]: {}", i, transport.transport_type());
         }
         
         // 创建取消通道，用于在获得第一个成功响应后取消其他任务
@@ -314,16 +333,18 @@ impl CoreResolver {
             
             let task = tokio::spawn(async move {
                 let start = Instant::now();
+                let transport_type = transport_clone.transport_type();
+                dns_debug!("🚀 开始使用 {} 传输查询", transport_type);
                 
                 // 使用select!来同时监听取消信号和DNS查询
                 tokio::select! {
                     // DNS查询结果
                     result = transport_clone.send(&request_clone) => {
                         let duration = start.elapsed();
-                        let transport_type = transport_clone.transport_type();
                         
                         match result {
                             Ok(response) => {
+                                dns_info!("✅ {} 传输查询成功 (耗时: {:?}ms)", transport_type, duration.as_millis());
                                 // 记录成功统计
                                 if let Some(upstream_monitor) = &upstream_monitor {
                                     upstream_monitor.record_success(transport_type, duration);
@@ -339,6 +360,7 @@ impl CoreResolver {
                                 }
                             }
                             Err(e) => {
+                                dns_debug!("❌ {} 传输查询失败: {} (耗时: {:?}ms)", transport_type, e, duration.as_millis());
                                 // 记录失败统计
                                 if let Some(upstream_monitor) = &upstream_monitor {
                                     upstream_monitor.record_failure(transport_type);
@@ -473,18 +495,21 @@ impl CoreResolver {
         
         let mut tasks = Vec::new();
         
-        for transport in available_transports {
-            let transport_clone = Arc::clone(&transport);
+        for (index, transport) in available_transports.iter().enumerate() {
+            let transport_clone = Arc::clone(transport);
             let request_clone = request.clone();
             
             let task = tokio::spawn(async move {
                 let start = Instant::now();
+                let transport_type = transport_clone.transport_type();
+                
                 let result = transport_clone.send(&request_clone).await;
                 let duration = start.elapsed();
+                
                 QueryResult {
                     response: result,
                     duration,
-                    transport_type: transport_clone.transport_type().to_string(),
+                    transport_type: transport_type.to_string(),
                 }
             });
             
@@ -518,12 +543,28 @@ impl CoreResolver {
                         results.push(query_result);
                     }
                 }
-                Err(_) => break, // 超时
+                Err(_) => {
+                    break; // 超时
+                }
             }
         }
         
         // 智能选择最佳结果
-        self.select_best_result(results, fastest_response)
+        let final_result = self.select_best_result(results, fastest_response);
+        
+        // 记录最终选择的策略结果
+        match &final_result {
+            Ok(response) => {
+                dns_info!("🧠 Smart策略: 最终选择成功 - 答案数: {}, 查询: {}", 
+                         response.answers.len(), request.query.name);
+            }
+            Err(e) => {
+                dns_warn!("🧠 Smart策略: 所有传输均失败 - 错误: {}, 查询: {}", 
+                         e, request.query.name);
+            }
+        }
+        
+        final_result
     }
     
     /// 选择最佳查询结果
@@ -544,8 +585,10 @@ impl CoreResolver {
         let mut best_response: Option<Response> = None;
         let mut best_score = -1i32;
         let mut best_duration = Duration::from_secs(u64::MAX);
+        let mut best_transport_type = String::new();
         
-        for result in &results {
+        // 分析每个结果
+        for result in results.iter() {
             if let Ok(response) = &result.response {
                 let score = response.answers.len() as i32;
                 
@@ -554,12 +597,15 @@ impl CoreResolver {
                     best_score = score;
                     best_duration = result.duration;
                     best_response = Some(response.clone());
+                    best_transport_type = result.transport_type.clone();
                 }
             }
         }
         
         // 如果有完整结果，返回最佳结果
         if let Some(response) = best_response {
+            dns_info!("🎯 Smart策略: 选择最佳结果 - 传输: {}, 答案数: {}, 耗时: {:?}ms", 
+                     best_transport_type, best_score, best_duration.as_millis());
             return Ok(response);
         }
         
@@ -580,30 +626,16 @@ impl CoreResolver {
     
     /// 获取可用的传输实例
     fn get_available_transports(&self) -> Vec<Arc<dyn Transport + Send + Sync + 'static>> {
-        dns_debug!("开始获取可用的传输实例");
-        dns_debug!("总传输数量: {}", self.transports.len());
-        
-        for (i, transport) in self.transports.iter().enumerate() {
-            dns_debug!("传输 {}: 类型={}", i, transport.transport_type());
-        }
-        
         if let Some(upstream_monitor) = &self.upstream_monitor {
-            dns_debug!("使用上游监控器过滤传输");
-            let available_transports: Vec<_> = self.transports
+            self.transports
                 .iter()
-                .enumerate()
-                .filter(|(i, t)| {
-                    let is_available = upstream_monitor.is_transport_available(t.transport_type());
-                    dns_debug!("传输 {} ({}): 可用状态={}", i, t.transport_type(), is_available);
-                    is_available
+                .filter(|t| {
+                    let transport_type = t.transport_type();
+                    upstream_monitor.is_transport_available(transport_type)
                 })
-                .map(|(_, t)| t.clone())
-                .collect();
-            
-            dns_debug!("可用传输数量: {}", available_transports.len());
-            available_transports
+                .cloned()
+                .collect()
         } else {
-            dns_debug!("未启用上游监控，返回所有传输");
             self.transports.clone()
         }
     }
@@ -615,6 +647,11 @@ impl CoreResolver {
         } else {
             HashMap::new()
         }
+    }
+    
+    /// 获取传输数量
+    pub fn transport_count(&self) -> usize {
+        self.transports.len()
     }
     
     /// 清空缓存

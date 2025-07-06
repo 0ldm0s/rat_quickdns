@@ -9,6 +9,7 @@ use rat_quickmem::QuickMemConfig;
 use crate::resolver::CoreResolverConfig;
 use crate::upstream_handler::{UpstreamManager, UpstreamSpec};
 use crate::error::{DnsError, Result};
+use crate::dns_error;
 use super::{
     strategy::QueryStrategy,
     engine::SmartDecisionEngine,
@@ -105,21 +106,27 @@ impl DnsResolverBuilder {
     /// 添加TCP上游服务器
     pub fn add_tcp_upstream(mut self, name: impl Into<String>, server: impl Into<String>) -> Self {
         let spec = UpstreamSpec::tcp(name.into(), server.into());
-        let _ = self.upstream_manager.add_upstream(spec);
+        if let Err(e) = self.upstream_manager.add_upstream(spec) {
+            dns_error!("Failed to add TCP upstream: {}", e);
+        }
         self
     }
     
     /// 添加DoH上游服务器
     pub fn add_doh_upstream(mut self, name: impl Into<String>, url: impl Into<String>) -> Self {
         let spec = UpstreamSpec::doh(name.into(), url.into());
-        let _ = self.upstream_manager.add_upstream(spec);
+        if let Err(e) = self.upstream_manager.add_upstream(spec) {
+            dns_error!("Failed to add DoH upstream: {}", e);
+        }
         self
     }
     
     /// 添加DoT上游服务器
     pub fn add_dot_upstream(mut self, name: impl Into<String>, server: impl Into<String>) -> Self {
         let spec = UpstreamSpec::dot(name.into(), server.into());
-        let _ = self.upstream_manager.add_upstream(spec);
+        if let Err(e) = self.upstream_manager.add_upstream(spec) {
+            dns_error!("Failed to add DoT upstream: {}", e);
+        }
         self
     }
     
@@ -298,7 +305,7 @@ impl DnsResolverBuilder {
         }
         
         let decision_engine = match self.query_strategy {
-            QueryStrategy::Smart => {
+            QueryStrategy::Smart | QueryStrategy::Fifo | QueryStrategy::RoundRobin => {
                 let mut engine = SmartDecisionEngine::new(self.current_region.clone());
                 
                 // 添加所有上游服务器到决策引擎
@@ -308,7 +315,6 @@ impl DnsResolverBuilder {
                 
                 Some(Arc::new(engine))
             },
-            _ => None,
         };
         
         SmartDnsResolver::new(

@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # 引用父项目
-rat_quickdns = { path = "..", features = ["python-bindings"] }
+rat_quickdns = { path = "..", features = ["python-bindings"], default-features = true }
 
 # PyO3依赖
 pyo3 = { version = "0.20", features = ["extension-module"] }

@@ -78,6 +78,8 @@ impl TcpTransport {
 #[async_trait]
 impl Transport for TcpTransport {
     async fn send(&self, request: &Request) -> Result<Response> {
+        use crate::dns_debug;
+        dns_debug!("TCP请求开始: {} -> {}:{}", request.query.name, self.config.server, self.config.port);
         let server_addr = format!("{}:{}", self.config.server, self.config.port);
         
         // 建立TCP连接

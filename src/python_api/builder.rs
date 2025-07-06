@@ -10,6 +10,7 @@ use crate::builder::strategy::QueryStrategy as RustQueryStrategy;
 use crate::upstream_handler::{UpstreamSpec, UpstreamManager};
 use super::resolver::PyDnsResolver;
 use super::types::PyQueryStrategy;
+use rat_quickmem::QuickMemConfig;
 
 /// Python版本的DNS解析器构建器
 /// 
@@ -36,8 +37,19 @@ impl PyDnsResolverBuilder {
     ///     DnsResolverBuilder: 新的构建器实例
     #[new]
     pub fn new() -> Self {
+        // 为 Python API 提供合理的默认值
+        let default_strategy = RustQueryStrategy::Smart;
+        let default_edns = true;
+        let default_region = "CN".to_string();
+        let default_quickmem_config = QuickMemConfig::default();
+        
         Self {
-            inner: RustDnsResolverBuilder::new(),
+            inner: RustDnsResolverBuilder::new(
+                default_strategy,
+                default_edns,
+                default_region,
+                default_quickmem_config,
+            ),
         }
     }
     
@@ -52,8 +64,7 @@ impl PyDnsResolverBuilder {
     /// Example:
     ///     >>> builder.query_strategy(QueryStrategy.SMART)
     pub fn query_strategy(&mut self, strategy: &PyQueryStrategy) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.query_strategy(strategy.to_rust());
+        self.inner = self.inner.clone().query_strategy(strategy.to_rust());
         Ok(())
     }
     
@@ -70,8 +81,7 @@ impl PyDnsResolverBuilder {
     ///     >>> builder.add_udp_upstream("Google", "8.8.8.8")
     ///     >>> builder.add_udp_upstream("Cloudflare", "1.1.1.1")
     pub fn add_udp_upstream(&mut self, name: String, server: String) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.add_udp_upstream(name, server);
+        self.inner = self.inner.clone().add_udp_upstream(name, server);
         Ok(())
     }
     
@@ -88,8 +98,7 @@ impl PyDnsResolverBuilder {
     ///     >>> builder.add_tcp_upstream("Cloudflare", "1.1.1.1")
     ///     >>> builder.add_tcp_upstream("Quad9", "9.9.9.9")
     pub fn add_tcp_upstream(&mut self, name: String, server: String) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.add_tcp_upstream(name, server);
+        self.inner = self.inner.clone().add_tcp_upstream(name, server);
         Ok(())
     }
     
@@ -116,8 +125,7 @@ impl PyDnsResolverBuilder {
             ));
         }
         
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.add_doh_upstream(name, url);
+        self.inner = self.inner.clone().add_doh_upstream(name, url);
         Ok(())
     }
     
@@ -134,8 +142,7 @@ impl PyDnsResolverBuilder {
     ///     >>> builder.add_dot_upstream("Quad9", "9.9.9.9")
     ///     >>> builder.add_dot_upstream("Cloudflare DoT", "1.1.1.1")
     pub fn add_dot_upstream(&mut self, name: String, server: String) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.add_dot_upstream(name, server);
+        self.inner = self.inner.clone().add_dot_upstream(name, server);
         Ok(())
     }
     
@@ -151,8 +158,7 @@ impl PyDnsResolverBuilder {
     ///     >>> builder.timeout(5.0)  # 5秒超时
     pub fn timeout(&mut self, timeout_secs: f64) -> PyResult<()> {
         let duration = std::time::Duration::from_secs_f64(timeout_secs);
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.with_timeout(duration);
+        self.inner = self.inner.clone().with_timeout(duration);
         Ok(())
     }
     
@@ -167,8 +173,7 @@ impl PyDnsResolverBuilder {
     /// Example:
     ///     >>> builder.region("CN")  # 中国区域
     pub fn region(&mut self, region: String) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.region(region);
+        self.inner = self.inner.clone().region(region);
         Ok(())
     }
     
@@ -180,8 +185,7 @@ impl PyDnsResolverBuilder {
     /// Example:
     ///     >>> builder.with_public_dns()
     pub fn with_public_dns(&mut self) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.with_public_dns().map_err(|e| {
+        self.inner = self.inner.clone().with_public_dns().map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to add public DNS: {}", e))
         })?;
         Ok(())
@@ -198,8 +202,7 @@ impl PyDnsResolverBuilder {
     /// Example:
     ///     >>> builder.enable_edns(True)
     pub fn enable_edns(&mut self, enable: bool) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.enable_edns(enable);
+        self.inner = self.inner.clone().enable_edns(enable);
         Ok(())
     }
     
@@ -214,9 +217,23 @@ impl PyDnsResolverBuilder {
     /// Example:
     ///     >>> builder.enable_upstream_monitoring(True)
     pub fn enable_upstream_monitoring(&mut self, enable: bool) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.with_upstream_monitoring(enable);
+        self.inner = self.inner.clone().with_upstream_monitoring(enable);
         Ok(())
+    }
+    
+    /// 启用健康检查器（上游监控的别名）
+    /// 
+    /// Args:
+    ///     enable (bool): 是否启用健康检查
+    /// 
+    /// Returns:
+    ///     DnsResolverBuilder: 返回自身以支持链式调用
+    /// 
+    /// Example:
+    ///     >>> builder.enable_health_checker(True)
+    pub fn enable_health_checker(&mut self, enable: bool) -> PyResult<()> {
+        // 健康检查器实际上就是上游监控功能
+        self.enable_upstream_monitoring(enable)
     }
     
     /// 为ROUND_ROBIN策略设置优化的超时时间
@@ -234,8 +251,7 @@ impl PyDnsResolverBuilder {
     ///     >>> builder.round_robin_timeout(1.5)  # 1.5秒超时
     pub fn round_robin_timeout(&mut self, timeout_secs: f64) -> PyResult<()> {
         let duration = std::time::Duration::from_secs_f64(timeout_secs);
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.with_round_robin_timeout(duration);
+        self.inner = self.inner.clone().with_round_robin_timeout(duration);
         Ok(())
     }
     
@@ -250,8 +266,7 @@ impl PyDnsResolverBuilder {
     ///     >>> builder.query_strategy(QueryStrategy.ROUND_ROBIN)
     ///     >>> builder.optimize_for_round_robin()  # 应用所有优化
     pub fn optimize_for_round_robin(&mut self) -> PyResult<()> {
-        let inner = std::mem::replace(&mut self.inner, RustDnsResolverBuilder::new());
-        self.inner = inner.optimize_for_round_robin();
+        self.inner = self.inner.clone().optimize_for_round_robin();
         Ok(())
     }
     

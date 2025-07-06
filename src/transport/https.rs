@@ -7,20 +7,17 @@ use async_trait::async_trait;
 use std::time::Duration;
 use tokio::time::timeout;
 
-#[cfg(feature = "reqwest")]
 use reqwest::{Client, Method};
 
 /// HTTPS传输实现
 #[derive(Debug)]
 pub struct HttpsTransport {
     config: HttpsConfig,
-    #[cfg(feature = "reqwest")]
     client: Client,
 }
 
 impl HttpsTransport {
     /// 创建新的HTTPS传输
-    #[cfg(feature = "reqwest")]
     pub fn new(config: HttpsConfig) -> Result<Self> {
         // 设置连接超时为总超时的1/3，最小2秒，最大5秒
         let connect_timeout = std::cmp::min(
@@ -46,11 +43,6 @@ impl HttpsTransport {
         })
     }
     
-    #[cfg(not(feature = "reqwest"))]
-    pub fn new(_config: HttpsConfig) -> Result<Self> {
-        Err(DnsError::Config("HTTPS support requires 'reqwest' feature".to_string()))
-    }
-    
     // 注意：移除了 default() 方法，因为它依赖兜底配置
     // 用户现在必须明确提供 HttpsConfig，不能依赖隐式默认值
     // 
@@ -71,7 +63,6 @@ impl HttpsTransport {
     // })
     
     /// 将DNS请求编码为base64url格式(用于GET方法)
-    #[cfg(feature = "reqwest")]
     fn encode_dns_query_base64url(request: &Request) -> Result<String> {
         use base64::{Engine as _, engine::general_purpose};
         let dns_data = UdpTransport::serialize_request(request)?;
@@ -79,8 +70,9 @@ impl HttpsTransport {
     }
     
     /// 发送GET请求
-    #[cfg(feature = "reqwest")]
     async fn send_get_request(&self, request: &Request) -> Result<Response> {
+        use crate::{dns_debug, dns_info};
+        dns_info!("🌐 DoH GET请求开始: {} -> {}", request.query.name, self.config.url);
         let dns_query = Self::encode_dns_query_base64url(request)?;
         
         let response = timeout(
@@ -125,7 +117,7 @@ impl HttpsTransport {
         ).await;
         
         let body = match body_result {
-            Ok(Ok(bytes)) => bytes,
+            Ok(Ok(bytes)) => bytes.to_vec(),
             Ok(Err(e)) => return Err(DnsError::Http(format!("Failed to read response body: {}", e))),
             Err(_) => return Err(DnsError::Timeout),
         };
@@ -134,8 +126,9 @@ impl HttpsTransport {
     }
     
     /// 发送POST请求
-    #[cfg(feature = "reqwest")]
     async fn send_post_request(&self, request: &Request) -> Result<Response> {
+        use crate::{dns_debug, dns_info};
+        dns_info!("🌐 DoH POST请求开始: {} -> {}", request.query.name, self.config.url);
         let dns_data = UdpTransport::serialize_request(request)?;
         
         let response = timeout(
@@ -181,7 +174,7 @@ impl HttpsTransport {
         ).await;
         
         let body = match body_result {
-            Ok(Ok(bytes)) => bytes,
+            Ok(Ok(bytes)) => bytes.to_vec(),
             Ok(Err(e)) => return Err(DnsError::Http(format!("Failed to read response body: {}", e))),
             Err(_) => return Err(DnsError::Timeout),
         };
@@ -190,7 +183,6 @@ impl HttpsTransport {
     }
 }
 
-#[cfg(feature = "reqwest")]
 #[async_trait]
 impl Transport for HttpsTransport {
     async fn send(&self, request: &Request) -> Result<Response> {
@@ -215,25 +207,7 @@ impl Transport for HttpsTransport {
     }
 }
 
-#[cfg(not(feature = "reqwest"))]
-#[async_trait]
-impl Transport for HttpsTransport {
-    async fn send(&self, _request: &Request) -> Result<Response> {
-        Err(DnsError::Config("HTTPS support requires 'reqwest' feature".to_string()))
-    }
-    
-    fn transport_type(&self) -> &'static str {
-        "HTTPS (disabled)"
-    }
-    
-    fn set_timeout(&mut self, timeout: Duration) {
-        self.config.base.timeout = timeout;
-    }
-    
-    fn timeout(&self) -> Duration {
-        self.config.base.timeout
-    }
-}
+
 
 // 注意：移除了便捷配置方法，因为它们依赖兜底行为
 // 硬编码的默认值（如 cloudflare 服务器、POST方法）是兜底代码
