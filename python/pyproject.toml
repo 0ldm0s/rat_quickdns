@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rat-quickdns-py"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python bindings for rat_quickdns - A high-performance DNS client library"
 authors = [{name = "0ldm0s", email = "oldmos@gmail.com"}]
 readme = "README.md"
@@ -26,9 +26,9 @@ classifiers = [
 keywords = ["dns", "networking", "async", "performance"]
 
 [project.urls]
-Homepage = "https://github.com/0ldm0s/rat_quickdns"
-Repository = "https://github.com/0ldm0s/rat_quickdns"
-Documentation = "https://github.com/0ldm0s/rat_quickdns/blob/main/README.md"
+Homepage = "https://0ldm0s.net"
+Repository = "https://git.sukiyaki.su/0ldm0s/rat_quickdns"
+Documentation = "https://git.sukiyaki.su/0ldm0s/rat_quickdns/src/branch/master/README.md"
 
 [tool.maturin]
 module-name = "rat_quickdns_py"
