@@ -104,35 +104,35 @@ macro_rules! dns_response {
 #[macro_export]
 macro_rules! dns_error {
     ($($arg:tt)*) => {
-        $crate::error!($($arg)*);
+        $crate::error!($($arg)*)
     };
 }
 
 #[macro_export]
 macro_rules! dns_debug {
     ($($arg:tt)*) => {
-        $crate::debug!($($arg)*);
+        $crate::debug!($($arg)*)
     };
 }
 
 #[macro_export]
 macro_rules! dns_info {
     ($($arg:tt)*) => {
-        $crate::info!($($arg)*);
+        $crate::info!($($arg)*)
     };
 }
 
 #[macro_export]
 macro_rules! dns_warn {
     ($($arg:tt)*) => {
-        $crate::warn!($($arg)*);
+        $crate::warn!($($arg)*)
     };
 }
 
 #[macro_export]
 macro_rules! dns_transport {
     ($($arg:tt)*) => {
-        $crate::info!($($arg)*);
+        $crate::info!($($arg)*)
     };
 }
 
