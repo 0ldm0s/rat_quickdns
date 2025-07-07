@@ -171,17 +171,20 @@ impl CoreResolver {
     
     /// 添加UDP传输
     pub fn add_udp_transport(&mut self, config: TransportConfig) {
-        dns_transport!("添加UDP传输: {}:{}", config.server, config.port);
+        dns_info!("🪶 添加UDP传输: {}:{}", config.server, config.port);
         let transport = Arc::new(UdpTransport::new(config));
         self.transports.push(transport.clone());
-        dns_info!("UDP传输已添加，当前传输总数: {}", self.transports.len());
+        dns_info!("🪶 UDP传输已添加，当前传输总数: {}", self.transports.len());
         dns_debug!("新添加的传输类型: {}", transport.transport_type());
     }
     
     /// 添加TCP传输
     pub fn add_tcp_transport(&mut self, config: TransportConfig) {
+        dns_info!("🔗 添加TCP传输: {}:{}", config.server, config.port);
         let transport = Arc::new(TcpTransport::new(config));
-        self.transports.push(transport);
+        self.transports.push(transport.clone());
+        dns_info!("🔗 TCP传输已添加，当前传输总数: {}", self.transports.len());
+        dns_debug!("新添加的传输类型: {}", transport.transport_type());
     }
     
     /// 添加TLS传输

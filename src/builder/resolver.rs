@@ -197,23 +197,6 @@ impl SmartDnsResolver {
         let start_time = Instant::now();
         let query_id = request.query_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
         
-        // 通用应急检查：在执行任何策略前检查是否所有服务器都失败
-        if let Some(emergency_error) = self.check_emergency_status().await {
-            let duration = start_time.elapsed();
-            return Ok(DnsQueryResponse {
-                query_id,
-                domain: request.domain,
-                record_type: request.record_type,
-                success: false,
-                error: Some(emergency_error),
-                records: Vec::new(),
-                duration_ms: duration.as_millis() as u64,
-                server_used: None,
-                dnssec_status: Some(crate::builder::types::DnssecStatus::Indeterminate),
-                dnssec_records: Vec::new(),
-            });
-        }
-        
         // 根据策略选择上游服务器
         let result = match self.query_strategy {
             QueryStrategy::Fifo => self.query_fifo(&request).await,
@@ -244,15 +227,12 @@ impl SmartDnsResolver {
                 })
             },
             Err(e) => {
-                // 通用错误处理：在查询失败后再次检查应急状态
-                let enhanced_error = self.enhance_error_with_emergency_info(e).await;
-                
                 Ok(DnsQueryResponse {
                     query_id,
                     domain: request.domain,
                     record_type: request.record_type,
                     success: false,
-                    error: Some(enhanced_error),
+                    error: Some(format!("查询失败 (策略: {:?}): {}", self.query_strategy, e)),
                     records: Vec::new(),
                     duration_ms: duration.as_millis() as u64,
                     server_used: None,

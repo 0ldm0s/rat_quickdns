@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rat-quickdns-py"
-version = "0.1.3"
+version = "0.1.5"
 description = "Python bindings for rat_quickdns - A high-performance DNS client library"
 authors = [{name = "0ldm0s", email = "oldmos@gmail.com"}]
 readme = "README.md"

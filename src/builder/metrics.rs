@@ -69,7 +69,7 @@ impl PerformanceMetrics {
     
     /// 是否可用（基于连续失败次数）- 修正术语，更准确描述服务器可用性
     pub fn is_available(&self) -> bool {
-        self.consecutive_failures < 5
+        self.consecutive_failures < 10
     }
     
     /// 获取延迟等级描述
