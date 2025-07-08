@@ -1,6 +1,6 @@
 [package]
 name = "rat-quickdns-py"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 authors = ["0ldm0s <oldmos@gmail.com>"]
 description = "Python bindings for rat_quickdns - A fast, reliable DNS resolver library"
