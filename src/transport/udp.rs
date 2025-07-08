@@ -64,9 +64,9 @@ impl UdpTransport {
         // 所有绑定尝试都失败
         dns_error!("所有绑定尝试都失败");
         if let Some(e) = last_error {
-            Err(DnsError::Network(format!("Windows UDP socket bind failed: {}", e)))
+            Err(DnsError::Network(format!("Windows UDP socket 绑定失败: {}", e)))
         } else {
-            Err(DnsError::Network("Windows UDP socket bind failed: unknown error".to_string()))
+            Err(DnsError::Network("Windows UDP socket 绑定失败: 未知错误".to_string()))
         }
     }
     
@@ -80,6 +80,20 @@ impl UdpTransport {
         // 设置接收缓冲区大小（如果需要）
         // 在实际应用中，可能需要使用socket2 crate来设置更多选项
         
+        Ok(())
+    }
+    
+    /// 非Windows平台的socket创建（占位方法）
+    #[cfg(not(windows))]
+    async fn create_windows_socket(&self) -> Result<UdpSocket> {
+        // 这个方法在非Windows平台不应该被调用
+        Err(DnsError::Network("在非Windows平台调用create_windows_socket方法".to_string()))
+    }
+    
+    /// 非Windows平台的socket配置（占位方法）
+    #[cfg(not(windows))]
+    async fn configure_windows_socket(&self, _socket: &UdpSocket) -> Result<()> {
+        // 这个方法在非Windows平台不应该被调用
         Ok(())
     }
     
@@ -175,7 +189,7 @@ impl UdpTransport {
             }
             if label.len() > 63 {
                 dns_debug!("标签 '{}' 长度超过63字节", label);
-                return Err(DnsError::Protocol("Label too long".to_string()));
+                return Err(DnsError::Protocol("标签长度过长".to_string()));
             }
             dns_debug!("添加标签 {}: '{}' (长度: {})", i, label, label.len());
             buffer.push(label.len() as u8);
@@ -299,7 +313,7 @@ impl UdpTransport {
                 let mut buffer = Vec::new();
                 for text in texts {
                     if text.len() > 255 {
-                        return Err(DnsError::Protocol("TXT record too long".to_string()));
+                        return Err(DnsError::Protocol("TXT记录长度过长".to_string()));
                     }
                     buffer.push(text.len() as u8);
                     buffer.extend_from_slice(text.as_bytes());
@@ -332,7 +346,7 @@ impl UdpTransport {
     /// 反序列化DNS请求
     pub fn deserialize_request(data: &[u8]) -> Result<Request> {
         if data.len() < 12 {
-            return Err(DnsError::Protocol("Request too short".to_string()));
+            return Err(DnsError::Protocol("请求数据过短".to_string()));
         }
         
         let id = u16::from_be_bytes([data[0], data[1]]);
@@ -352,7 +366,7 @@ impl UdpTransport {
         let qdcount = u16::from_be_bytes([data[4], data[5]]);
         
         if qdcount != 1 {
-            return Err(DnsError::Protocol("Request must have exactly one query".to_string()));
+            return Err(DnsError::Protocol("请求必须包含且仅包含一个查询".to_string()));
         }
         
         let mut offset = 12;
@@ -374,7 +388,7 @@ impl UdpTransport {
     /// 反序列化DNS响应
     pub fn deserialize_response(data: &[u8]) -> Result<Response> {
         if data.len() < 12 {
-            return Err(DnsError::Protocol("Response too short".to_string()));
+            return Err(DnsError::Protocol("响应数据过短".to_string()));
         }
         
         let id = u16::from_be_bytes([data[0], data[1]]);
@@ -445,7 +459,7 @@ impl UdpTransport {
         let (name, mut offset) = Self::parse_name(data, offset)?;
         
         if offset + 4 > data.len() {
-            return Err(DnsError::Protocol("Invalid query format".to_string()));
+            return Err(DnsError::Protocol("查询格式无效".to_string()));
         }
         
         let qtype = u16::from_be_bytes([data[offset], data[offset + 1]]).into();
@@ -460,7 +474,7 @@ impl UdpTransport {
         let (name, mut offset) = Self::parse_name(data, offset)?;
         
         if offset + 10 > data.len() {
-            return Err(DnsError::Protocol("Invalid record format".to_string()));
+            return Err(DnsError::Protocol("记录格式无效".to_string()));
         }
         
         let rtype = u16::from_be_bytes([data[offset], data[offset + 1]]).into();
@@ -470,7 +484,7 @@ impl UdpTransport {
         offset += 10;
         
         if offset + rdlength > data.len() {
-            return Err(DnsError::Protocol("Invalid record data length".to_string()));
+            return Err(DnsError::Protocol("记录数据长度无效".to_string()))
         }
         
         let rdata = &data[offset..offset + rdlength];
@@ -500,12 +514,12 @@ impl UdpTransport {
             loop_count += 1;
             if loop_count > MAX_LOOPS {
                 dns_debug!("域名解析循环次数超限，可能存在循环引用");
-                return Err(DnsError::Protocol("Name parsing loop detected".to_string()));
+                return Err(DnsError::Protocol("域名解析检测到循环引用".to_string()));
             }
             
             if offset >= data.len() {
                 dns_debug!("偏移量 {} 超出数据长度 {}", offset, data.len());
-                return Err(DnsError::Protocol("Name parsing overflow".to_string()));
+                return Err(DnsError::Protocol("域名解析数据溢出".to_string()));
             }
             
             let len = data[offset];
@@ -521,7 +535,7 @@ impl UdpTransport {
                 // 压缩指针
                 if offset + 1 >= data.len() {
                     dns_debug!("压缩指针数据不完整");
-                    return Err(DnsError::Protocol("Incomplete compression pointer".to_string()));
+                    return Err(DnsError::Protocol("压缩指针数据不完整".to_string()));
                 }
                 
                 let pointer = (((len & 0x3F) as usize) << 8) | (data[offset + 1] as usize);
@@ -529,7 +543,7 @@ impl UdpTransport {
                 
                 if pointer >= data.len() {
                     dns_debug!("压缩指针 {} 超出数据范围 {}", pointer, data.len());
-                    return Err(DnsError::Protocol("Invalid compression pointer".to_string()));
+                    return Err(DnsError::Protocol("压缩指针无效".to_string()));
                 }
                 
                 if !jumped {
@@ -545,13 +559,13 @@ impl UdpTransport {
             // 普通标签
             if len > 63 {
                 dns_debug!("标签长度 {} 超过63字节限制", len);
-                return Err(DnsError::Protocol("Label too long".to_string()));
+                return Err(DnsError::Protocol("标签长度过长".to_string()));
             }
             
             offset += 1;
             if offset + len as usize > data.len() {
                 dns_debug!("标签数据超出范围: 偏移{}+长度{} > 数据长度{}", offset, len, data.len());
-                return Err(DnsError::Protocol("Name label overflow".to_string()));
+                return Err(DnsError::Protocol("域名标签数据溢出".to_string()));
             }
             
             if !name.is_empty() {
@@ -586,13 +600,13 @@ impl UdpTransport {
         match rtype {
             RecordType::A => {
                 if rdata.len() != 4 {
-                    return Err(DnsError::Protocol("Invalid A record length".to_string()));
+                    return Err(DnsError::Protocol("A记录长度无效".to_string()));
                 }
                 Ok(RecordData::A(Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3])))
             }
             RecordType::AAAA => {
                 if rdata.len() != 16 {
-                    return Err(DnsError::Protocol("Invalid AAAA record length".to_string()));
+                    return Err(DnsError::Protocol("AAAA记录长度无效".to_string()));
                 }
                 let mut addr = [0u8; 16];
                 addr.copy_from_slice(rdata);
@@ -610,7 +624,7 @@ impl UdpTransport {
             }
             RecordType::MX => {
                 if rdata.len() < 3 {
-                    return Err(DnsError::Protocol("Invalid MX record length".to_string()));
+                    return Err(DnsError::Protocol("MX记录长度无效".to_string()));
                 }
                 // MX记录格式: 优先级(2字节) + 交换机域名
                 let priority = u16::from_be_bytes([rdata[0], rdata[1]]);
@@ -629,7 +643,7 @@ impl UdpTransport {
                     let len = rdata[offset] as usize;
                     offset += 1;
                     if offset + len > rdata.len() {
-                        return Err(DnsError::Protocol("Invalid TXT record format".to_string()));
+                        return Err(DnsError::Protocol("TXT记录格式无效".to_string()))
                     }
                     let text = String::from_utf8_lossy(&rdata[offset..offset + len]).to_string();
                     texts.push(text);
@@ -702,7 +716,7 @@ impl Transport for UdpTransport {
             dns_debug!("使用Unix/Linux平台socket创建策略");
             // Unix/Linux平台：使用标准绑定
             UdpSocket::bind("0.0.0.0:0").await
-                .map_err(|e| DnsError::Network(format!("Failed to bind UDP socket: {}", e)))?
+                .map_err(|e| DnsError::Network(format!("UDP socket 绑定失败: {}", e)))?
         };
         
         let server_addr = format!("{}:{}", self.config.server, self.config.port);
@@ -726,9 +740,9 @@ impl Transport for UdpTransport {
             Ok(Ok(_)) => {},
             Ok(Err(e)) => {
                 let error_msg = if cfg!(windows) {
-                    format!("Windows UDP send failed: {} (server: {})", e, server_addr)
+                    format!("Windows UDP 发送失败: {} (服务器: {})", e, server_addr)
                 } else {
-                    format!("UDP send failed: {} (server: {})", e, server_addr)
+                    format!("UDP 发送失败: {} (服务器: {})", e, server_addr)
                 };
                 return Err(DnsError::Network(error_msg));
             },
@@ -745,9 +759,9 @@ impl Transport for UdpTransport {
             Ok(Ok(len)) => len,
             Ok(Err(e)) => {
                 let error_msg = if cfg!(windows) {
-                    format!("Windows UDP recv failed: {}", e)
+                    format!("Windows UDP 接收失败: {}", e)
                 } else {
-                    format!("UDP recv failed: {}", e)
+                    format!("UDP 接收失败: {}", e)
                 };
                 return Err(DnsError::Network(error_msg));
             },
