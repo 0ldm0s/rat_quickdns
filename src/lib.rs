@@ -37,8 +37,8 @@ pub use config::{StrictDnsConfig, StrictConfigBuilder, ConfigError};
 // 重新导出zerg_creep基础日志宏到crate根部，供DNS宏使用
 pub use zerg_creep::{error, warn, info, debug, trace};
 
-// 重新导出rat_quickmem的核心功能
-pub use rat_quickmem::{encode, decode, QuickMemConfig};
+// 重新导出rat_quick_threshold的核心功能
+pub use rat_quick_threshold::memory::UnifiedAddressSpace;
 
 // 注意：移除了 quick_dns 宏，因为它包含兜底行为
 // 用户现在必须使用 StrictDnsConfig 明确配置所有参数

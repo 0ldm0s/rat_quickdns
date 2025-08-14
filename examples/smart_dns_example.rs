@@ -13,29 +13,20 @@
 use rat_quickdns::builder::{DnsResolverBuilder, QueryStrategy};
 use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
 use rat_quickdns::upstream_handler::UpstreamSpec;
-use rat_quickmem::QuickMemConfig;
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== DnsResolverBuilder 统一架构示例 ===");
     
-    // 创建 QuickMem 配置
-    let quickmem_config = QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
+    // 使用全局内存池，不需要创建QuickMem配置
     
     // 1. 测试FIFO模式（默认）
     println!("\n1. 测试FIFO模式（多服务器并发查询）");
     let fifo_resolver = DnsResolverBuilder::new(
         QueryStrategy::Fifo,
         true,
-        "global".to_string(),
-        quickmem_config.clone(),
+        "global".to_string()
     )
     .with_timeout(Duration::from_secs(5))
     .with_retry_count(2)
@@ -82,8 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let smart_resolver = DnsResolverBuilder::new(
         QueryStrategy::Smart,
         true,
-        "CN".to_string(),
-        quickmem_config.clone(),
+        "CN".to_string()
     )
     .with_timeout(Duration::from_secs(5))
     .with_retry_count(2)
@@ -131,8 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let round_robin_resolver = DnsResolverBuilder::new(
         QueryStrategy::RoundRobin,
         true,
-        "global".to_string(),
-        quickmem_config.clone(),
+        "global".to_string()
     )
     .with_timeout(Duration::from_secs(5))
     .with_retry_count(2)

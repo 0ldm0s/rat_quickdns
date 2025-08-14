@@ -5,7 +5,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
-use rat_quickmem::QuickMemConfig;
+
+use rat_quick_threshold::memory::get_global_address_space;
 
 use crate::resolver::{CoreResolverConfig, CoreResolver};
 use crate::upstream_handler::UpstreamManager;
@@ -27,9 +28,6 @@ pub struct SmartDnsResolver {
     /// 上游管理器
     upstream_manager: UpstreamManager,
     
-    /// QuickMem配置
-    quickmem_config: QuickMemConfig,
-    
     /// 智能决策引擎（可选）
     decision_engine: Option<Arc<SmartDecisionEngine>>,
     
@@ -49,12 +47,13 @@ impl Drop for SmartDnsResolver {
     }
 }
 
+// 已经导入全局内存池函数
+
 impl SmartDnsResolver {
     /// 创建新的DNS解析器
     pub(super) fn new(
         config: CoreResolverConfig,
         upstream_manager: UpstreamManager,
-        quickmem_config: QuickMemConfig,
         decision_engine: Option<Arc<SmartDecisionEngine>>,
         query_strategy: QueryStrategy,
         enable_edns: bool,
@@ -62,6 +61,9 @@ impl SmartDnsResolver {
         // 提取需要的配置值，避免所有权问题
         let default_timeout = config.default_timeout;
         let mut resolver = CoreResolver::new(config);
+        
+        // 使用全局内存池
+        let memory_config = get_global_address_space();
         
         let specs = upstream_manager.get_specs();
         dns_debug!("SmartDnsResolver::new - 开始处理 {} 个上游服务器", specs.len());
@@ -185,7 +187,6 @@ impl SmartDnsResolver {
         Ok(Self {
             resolver,
             upstream_manager,
-            quickmem_config,
             decision_engine,
             query_strategy,
             enable_edns,
@@ -562,8 +563,9 @@ impl SmartDnsResolver {
     }
     
     /// 获取QuickMem配置
-    pub fn quickmem_config(&self) -> &QuickMemConfig {
-        &self.quickmem_config
+    pub fn memory_config(&self) -> &'static rat_quick_threshold::memory::UnifiedAddressSpace {
+        // 使用全局内存池
+        get_global_address_space()
     }
 }
 
@@ -592,7 +594,6 @@ impl Clone for SmartDnsResolver {
         Self::new(
             config,
             self.upstream_manager.clone(),
-            self.quickmem_config.clone(),
             self.decision_engine.clone(),
             self.query_strategy,
             self.enable_edns,

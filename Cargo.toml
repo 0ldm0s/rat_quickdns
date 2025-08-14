@@ -12,7 +12,7 @@ rust-version = "1.85.0"
 
 [dependencies]
 # Local dependencies
-rat_quickmem = { path = "../rat_quickmem" }
+rat_quick_threshold = { path = "../rat_quick_threshold" }
 zerg_creep = { path = "../zerg_creep" }
 
 # Core async runtime

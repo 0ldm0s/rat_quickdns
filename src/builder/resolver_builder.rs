@@ -4,7 +4,9 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use rat_quickmem::QuickMemConfig;
+
+use rat_quick_threshold::memory::UnifiedAddressSpace;
+use rat_quick_threshold::memory::get_global_address_space;
 
 use crate::resolver::CoreResolverConfig;
 use crate::upstream_handler::{UpstreamManager, UpstreamSpec};
@@ -30,7 +32,7 @@ pub enum LoggerInitStrategy {
 }
 
 /// DNS解析器构建器
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DnsResolverBuilder {
     /// 解析器配置
     config: CoreResolverConfig,
@@ -38,8 +40,7 @@ pub struct DnsResolverBuilder {
     /// 上游管理器
     upstream_manager: UpstreamManager,
     
-    /// QuickMem配置
-    quickmem_config: QuickMemConfig,
+    // 使用全局内存池，不需要存储内存配置
     
     /// 查询策略
     query_strategy: QueryStrategy,
@@ -58,13 +59,30 @@ pub struct DnsResolverBuilder {
 // 硬编码的默认值（如 Smart策略、EDNS启用、QuickMem配置等）是兜底代码
 // 用户必须明确指定所有配置项
 
+// 手动实现Clone，避免直接克隆UnifiedAddressSpace
+impl Clone for DnsResolverBuilder {
+    fn clone(&self) -> Self {
+        // 使用全局地址空间实例
+        let memory_config = rat_quick_threshold::memory::get_global_address_space();
+        
+        Self {
+            config: self.config.clone(),
+            upstream_manager: self.upstream_manager.clone(),
+            // 使用全局内存池，不需要存储内存配置
+            query_strategy: self.query_strategy.clone(),
+            enable_edns: self.enable_edns,
+            current_region: self.current_region.clone(),
+            logger_init_strategy: self.logger_init_strategy.clone(),
+        }
+    }
+}
+
 impl DnsResolverBuilder {
     /// 创建新的构造器（需要明确指定所有配置）
     pub fn new(
         query_strategy: QueryStrategy,
         enable_edns: bool,
         current_region: String,
-        quickmem_config: QuickMemConfig,
     ) -> Self {
         // 创建一个基本的配置，用户需要进一步配置
         let config = CoreResolverConfig::new(
@@ -87,7 +105,6 @@ impl DnsResolverBuilder {
         Self {
             config,
             upstream_manager: UpstreamManager::new(),
-            quickmem_config,
             query_strategy,
             enable_edns,
             current_region,
@@ -236,11 +253,7 @@ impl DnsResolverBuilder {
         self
     }
     
-    /// 设置QuickMem配置
-    pub fn with_quickmem_config(mut self, config: QuickMemConfig) -> Self {
-        self.quickmem_config = config;
-        self
-    }
+    // 不再需要设置内存配置，使用全局内存池
     
     /// 设置DNS服务器端口
     pub fn with_port(mut self, port: u16) -> Self {
@@ -396,7 +409,6 @@ impl DnsResolverBuilder {
         SmartDnsResolver::new(
             self.config,
             self.upstream_manager,
-            self.quickmem_config,
             decision_engine,
             self.query_strategy,
             self.enable_edns,
