@@ -16,20 +16,41 @@ def basic_resolve_example():
     """基本域名解析示例"""
     print("\n=== 基本域名解析示例 ===")
     
-    # 使用便捷函数解析单个域名
-    print("\n使用便捷函数解析单个域名:")
+    # 创建解析器（使用构建器模式替代便捷函数）
+    print("\n使用构建器模式解析单个域名:")
+    builder = dns.DnsResolverBuilder()
+    builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+    builder.add_udp_upstream("Google", "8.8.8.8:53")
+    builder.query_strategy(QueryStrategy.SMART)
+    builder.timeout(5.0)
+    resolver = builder.build()
+    
     start_time = time.time()
-    ips = dns.quick_resolve("example.com")
+    ips = resolver.resolve("example.com")
     elapsed = (time.time() - start_time) * 1000
-    print(f"example.com -> {ips} (耗时: {elapsed:.2f}ms)")
+    if ips:
+        print(f"example.com -> {ips} (耗时: {elapsed:.2f}ms)")
+    else:
+        print(f"example.com -> 解析失败 (耗时: {elapsed:.2f}ms)")
     
     # 批量解析多个域名
     print("\n批量解析多个域名:")
     domains = ["google.com", "github.com", "cloudflare.com", "invalid-domain-example.xyz"]
     start_time = time.time()
-    results = dns.batch_resolve(domains)
-    elapsed = (time.time() - start_time) * 1000
     
+    results = []
+    for domain in domains:
+        try:
+            ips = resolver.resolve(domain)
+            if ips:
+                results.append(ips)
+            else:
+                results.append(None)
+        except Exception as e:
+            print(f"  解析 {domain} 时出错: {e}")
+            results.append(None)
+    
+    elapsed = (time.time() - start_time) * 1000
     print(f"批量解析耗时: {elapsed:.2f}ms")
     for i, result in enumerate(results):
         if result and isinstance(result, list) and len(result) > 0:
