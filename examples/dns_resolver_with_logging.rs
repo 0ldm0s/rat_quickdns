@@ -5,7 +5,7 @@
 
 use rat_quickdns::builder::{DnsResolverBuilder, QueryStrategy};
 use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
-use rat_quickmem::QuickMemConfig;
+use rat_quick_threshold::memory::UnifiedAddressSpace;
 use zerg_creep::logger::LevelFilter;
 use std::time::Duration;
 

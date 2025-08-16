@@ -10,7 +10,7 @@ use crate::builder::strategy::QueryStrategy as RustQueryStrategy;
 use crate::upstream_handler::{UpstreamSpec, UpstreamManager};
 use super::resolver::PyDnsResolver;
 use super::types::PyQueryStrategy;
-use rat_quickmem::QuickMemConfig;
+use rat_quick_threshold::memory::UnifiedAddressSpace;
 
 /// Python版本的DNS解析器构建器
 /// 
@@ -41,14 +41,12 @@ impl PyDnsResolverBuilder {
         let default_strategy = RustQueryStrategy::Smart;
         let default_edns = true;
         let default_region = "CN".to_string();
-        let default_quickmem_config = QuickMemConfig::default();
         
         Self {
             inner: RustDnsResolverBuilder::new(
                 default_strategy,
                 default_edns,
                 default_region,
-                default_quickmem_config,
             ),
         }
     }

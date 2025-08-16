@@ -213,20 +213,10 @@ fn create_test_cases() -> Vec<DnsTestCase> {
 
 /// 创建UDP DNS解析器
 async fn create_udp_resolver(server: &str) -> Result<rat_quickdns::builder::resolver::SmartDnsResolver> {
-    // 创建 QuickMem 配置
-    let quickmem_config = rat_quickmem::QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
-    
     let resolver = rat_quickdns::builder::DnsResolverBuilder::new(
         rat_quickdns::builder::QueryStrategy::Smart,
         true,  // 启用 EDNS
         "global".to_string(),
-        quickmem_config,
     )
     .with_cache(true)
     .with_timeout(Duration::from_secs(3)) // 减少基础超时，依赖重试
@@ -240,20 +230,12 @@ async fn create_udp_resolver(server: &str) -> Result<rat_quickdns::builder::reso
 
 /// 创建DoT DNS解析器
 async fn create_dot_resolver(server: &str) -> Result<rat_quickdns::builder::resolver::SmartDnsResolver> {
-    // 创建 QuickMem 配置
-    let quickmem_config = rat_quickmem::QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
+    // 使用全局地址空间（rat_quick_threshold 自动管理）
     
     let resolver = rat_quickdns::builder::DnsResolverBuilder::new(
         rat_quickdns::builder::QueryStrategy::Smart,
         true,  // 启用 EDNS
         "global".to_string(),
-        quickmem_config,
     )
     .with_cache(true)
     .with_timeout(Duration::from_secs(10))
@@ -267,20 +249,10 @@ async fn create_dot_resolver(server: &str) -> Result<rat_quickdns::builder::reso
 
 /// 创建DoH DNS解析器
 async fn create_doh_resolver(url: &str) -> Result<rat_quickdns::builder::resolver::SmartDnsResolver> {
-    // 创建 QuickMem 配置
-    let quickmem_config = rat_quickmem::QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
-    
     let resolver = rat_quickdns::builder::DnsResolverBuilder::new(
         rat_quickdns::builder::QueryStrategy::Smart,
         true,  // 启用 EDNS
         "global".to_string(),
-        quickmem_config,
     )
     .with_cache(true)
     .with_timeout(Duration::from_secs(10))

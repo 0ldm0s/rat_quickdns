@@ -3,6 +3,27 @@
 version = 4
 
 [[package]]
+name = "CoreFoundation-sys"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0e9889e6db118d49d88d84728d0e964d973a5680befb5f85f55141beea5c20b"
+dependencies = [
+ "libc",
+ "mach",
+]
+
+[[package]]
+name = "IOKit-sys"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99696c398cbaf669d2368076bdb3d627fb0ce51a26899d7c61228c5c0af3bf4a"
+dependencies = [
+ "CoreFoundation-sys",
+ "libc",
+ "mach",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -310,6 +331,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "either"
+version = "1.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "encoding_rs"
@@ -1038,6 +1065,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mach"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fd13ee2dd61cc82833ba05ade5a30bb3d63f7ced605ef827063c63078302de9"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1411,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "rat-quickdns-py"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "pyo3",
  "pyo3-build-config",
@@ -1420,8 +1456,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "rat_quickdns"
+name = "rat_quick_threshold"
 version = "0.1.5"
+dependencies = [
+ "IOKit-sys",
+ "bincode",
+ "bytes",
+ "core-foundation",
+ "core-foundation-sys",
+ "crossbeam",
+ "crossbeam-channel",
+ "crossbeam-utils",
+ "libc",
+ "num_cpus",
+ "once_cell",
+ "parking_lot",
+ "rayon",
+ "serde",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "rat_quickdns"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "base64",
@@ -1446,7 +1504,7 @@ dependencies = [
  "prometheus",
  "pyo3",
  "rand",
- "rat_quickmem",
+ "rat_quick_threshold",
  "regex",
  "reqwest",
  "ring 0.16.20",
@@ -1471,24 +1529,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "rat_quickmem"
-version = "0.1.1"
-dependencies = [
- "bincode",
- "bytes",
- "once_cell",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
 name = "raw-cpuid"
 version = "11.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6df7ab838ed27997ba19a4664507e6f82b41fe6e20be42929332156e5e85146"
 dependencies = [
  "bitflags 2.9.1",
+]
+
+[[package]]
+name = "rayon"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368f01d005bf8fd9b1206fb6fa653e6c4a81ceb1466406b81792d87c5677a58f"
+dependencies = [
+ "either",
+ "rayon-core",
+]
+
+[[package]]
+name = "rayon-core"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
+dependencies = [
+ "crossbeam-deque",
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -2729,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "zerg_creep"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "arc-swap",
  "async-trait",

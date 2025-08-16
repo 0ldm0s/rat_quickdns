@@ -4,7 +4,7 @@
 use rat_quickdns::{
     DnsResolverBuilder, RecordType, QueryStrategy,
 };
-use rat_quickmem::QuickMemConfig;
+use rat_quick_threshold::memory::UnifiedAddressSpace;
 use std::time::Duration;
 use tokio;
 
@@ -125,14 +125,7 @@ async fn test_mx_record_with_doh_server(
 ) -> Result<(bool, Duration, Vec<String>), String> {
     let start = std::time::Instant::now();
     
-    // 创建QuickMem配置
-    let quickmem_config = rat_quickmem::QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
+    // 使用全局地址空间（rat_quick_threshold 自动管理）
     
     // 创建带有预解析IP地址的DoH上游配置
     let mut doh_spec = rat_quickdns::upstream_handler::UpstreamSpec::doh(

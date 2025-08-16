@@ -6,7 +6,7 @@ use rat_quickdns::{
     upstream_handler::UpstreamSpec,
     logger::{init_dns_logger, info, debug, error, warn, trace},
 };
-use rat_quickmem::QuickMemConfig;
+use rat_quick_threshold::memory::UnifiedAddressSpace;
 use zerg_creep::logger::LevelFilter;
 use std::time::Duration;
 use tokio;

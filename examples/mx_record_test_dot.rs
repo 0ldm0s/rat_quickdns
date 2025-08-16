@@ -5,7 +5,7 @@ use rat_quickdns::{
     builder::DnsResolverBuilder, QueryStrategy,
     upstream_handler::UpstreamSpec,
 };
-use rat_quickmem::QuickMemConfig;
+use rat_quick_threshold::memory::UnifiedAddressSpace;
 use std::time::Duration;
 use tokio;
 
