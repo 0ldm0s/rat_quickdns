@@ -4,13 +4,19 @@
 
 use rat_quickdns::{logger::init_dns_logger, info, debug, error, warn, trace};
 use rat_quickdns::{dns_query, dns_response, dns_error, dns_timeout, dns_cache_hit, dns_cache_miss, dns_upstream, dns_strategy};
-use rat_logger::LevelFilter;
+use rat_logger::{LoggerBuilder, LevelFilter, handler::term::TermConfig};
 use std::time::Duration;
 use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 初始化 DNS 日志系统
+    // 调用者初始化日志系统
+    LoggerBuilder::new()
+        .with_level(LevelFilter::Trace)
+        .add_terminal_with_config(TermConfig::default())
+        .init_global_logger()?;
+
+    // 初始化 DNS 日志格式
     init_dns_logger(LevelFilter::Trace)?;
     
     info!("🚀 DNS 查询器日志系统启动");

@@ -5,11 +5,17 @@
 
 use rat_quickdns::builder::{DnsResolverBuilder, QueryStrategy};
 use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
-use rat_logger::LevelFilter;
+use rat_logger::{LoggerBuilder, LevelFilter, handler::term::TermConfig};
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 初始化基础日志系统（调用者责任）
+    LoggerBuilder::new()
+        .with_level(LevelFilter::Trace)
+        .add_terminal_with_config(TermConfig::default())
+        .init_global_logger()?;
+
     println!("=== DNS解析器日志配置示例 ===");
     
     
