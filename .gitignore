@@ -4,3 +4,4 @@
 /docs/output.txt
 /python/target
 /Cargo.lock
+.claude/
