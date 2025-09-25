@@ -5,8 +5,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use rat_quick_threshold::memory::UnifiedAddressSpace;
-use rat_quick_threshold::memory::get_global_address_space;
 
 use crate::resolver::CoreResolverConfig;
 use crate::upstream_handler::{UpstreamManager, UpstreamSpec};
@@ -39,8 +37,7 @@ pub struct DnsResolverBuilder {
     
     /// 上游管理器
     upstream_manager: UpstreamManager,
-    
-    // 使用全局内存池，不需要存储内存配置
+        // 使用全局内存池，不需要存储内存配置
     
     /// 查询策略
     query_strategy: QueryStrategy,
@@ -59,23 +56,7 @@ pub struct DnsResolverBuilder {
 // 硬编码的默认值（如 Smart策略、EDNS启用、QuickMem配置等）是兜底代码
 // 用户必须明确指定所有配置项
 
-// 手动实现Clone，避免直接克隆UnifiedAddressSpace
-impl Clone for DnsResolverBuilder {
-    fn clone(&self) -> Self {
-        // 使用全局地址空间实例
-        let memory_config = rat_quick_threshold::memory::get_global_address_space();
-        
-        Self {
-            config: self.config.clone(),
-            upstream_manager: self.upstream_manager.clone(),
-            // 使用全局内存池，不需要存储内存配置
-            query_strategy: self.query_strategy.clone(),
-            enable_edns: self.enable_edns,
-            current_region: self.current_region.clone(),
-            logger_init_strategy: self.logger_init_strategy.clone(),
-        }
-    }
-}
+    // 手动实现Clone
 
 impl DnsResolverBuilder {
     /// 创建新的构造器（需要明确指定所有配置）
@@ -101,7 +82,7 @@ impl DnsResolverBuilder {
             zerg_creep::logger::LevelFilter::Info, // 临时默认值
             false, // 临时默认值
         );
-        
+
         Self {
             config,
             upstream_manager: UpstreamManager::new(),

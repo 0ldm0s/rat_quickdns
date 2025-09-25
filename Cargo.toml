@@ -11,7 +11,6 @@ categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 # Local dependencies
-rat_quick_threshold = { path = "../rat_quick_threshold" }
 zerg_creep = { path = "../zerg_creep" }
 
 # Core async runtime

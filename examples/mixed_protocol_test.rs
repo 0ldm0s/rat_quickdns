@@ -6,21 +6,12 @@
 use rat_quickdns::builder::{DnsResolverBuilder, QueryStrategy};
 use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
 use rat_quickdns::upstream_handler::UpstreamSpec;
-use rat_quick_threshold::memory::UnifiedAddressSpace;
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== 混合协议测试示例 ===");
     
-    // 创建 QuickMem 配置
-    let quickmem_config = QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
     
     // 1. 测试纯 DoH 配置
     println!("\n1. 测试纯 DoH 配置");
@@ -28,7 +19,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryStrategy::Fifo,
         true,
         "global".to_string(),
-        quickmem_config.clone(),
     )
     .with_timeout(Duration::from_secs(10))
     .with_retry_count(2)
@@ -70,7 +60,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryStrategy::Fifo,
         true,
         "global".to_string(),
-        quickmem_config.clone(),
     )
     .with_timeout(Duration::from_secs(10))
     .with_retry_count(2)
@@ -111,7 +100,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryStrategy::Smart,
         true,
         "CN".to_string(),
-        quickmem_config.clone(),
     )
     .with_timeout(Duration::from_secs(10))
     .with_retry_count(2)

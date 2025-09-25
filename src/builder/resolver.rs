@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
-use rat_quick_threshold::memory::get_global_address_space;
 
 use crate::resolver::{CoreResolverConfig, CoreResolver};
 use crate::upstream_handler::UpstreamManager;
@@ -47,7 +46,6 @@ impl Drop for SmartDnsResolver {
     }
 }
 
-// 已经导入全局内存池函数
 
 impl SmartDnsResolver {
     /// 创建新的DNS解析器
@@ -62,8 +60,6 @@ impl SmartDnsResolver {
         let default_timeout = config.default_timeout;
         let mut resolver = CoreResolver::new(config);
         
-        // 使用全局内存池
-        let memory_config = get_global_address_space();
         
         let specs = upstream_manager.get_specs();
         dns_debug!("SmartDnsResolver::new - 开始处理 {} 个上游服务器", specs.len());
@@ -562,11 +558,6 @@ impl SmartDnsResolver {
         &self.upstream_manager
     }
     
-    /// 获取QuickMem配置
-    pub fn memory_config(&self) -> &'static rat_quick_threshold::memory::UnifiedAddressSpace {
-        // 使用全局内存池
-        get_global_address_space()
-    }
 }
 
 impl Clone for SmartDnsResolver {

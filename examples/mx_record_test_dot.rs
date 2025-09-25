@@ -5,7 +5,6 @@ use rat_quickdns::{
     builder::DnsResolverBuilder, QueryStrategy,
     upstream_handler::UpstreamSpec,
 };
-use rat_quick_threshold::memory::UnifiedAddressSpace;
 use std::time::Duration;
 use tokio;
 
@@ -135,14 +134,6 @@ async fn test_mx_record_with_dot_server(
 ) -> Result<(bool, Duration, Vec<String>), String> {
     let start = std::time::Instant::now();
     
-    // 创建 QuickMem 配置
-    let quickmem_config = QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
     
     // 创建带有预解析IP地址的DoT上游配置
     let mut dot_spec = UpstreamSpec::dot(
@@ -159,7 +150,6 @@ async fn test_mx_record_with_dot_server(
         QueryStrategy::Smart,
         true,  // 启用 EDNS
         "global".to_string(),
-        quickmem_config,
     )
     .with_timeout(Duration::from_secs(3)) // 快速失败，避免长时间等待
     .with_retry_count(1) // 减少重试次数以加快失败检测

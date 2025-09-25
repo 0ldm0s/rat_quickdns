@@ -61,7 +61,7 @@ async fn simulate_error_scenarios() {
     // 域名不存在
     dns_query!("nonexistent.invalid", "A");
     sleep(Duration::from_millis(100)).await;
-    dns_error!("nonexistent.invalid", "NXDOMAIN");
+    dns_error!("NXDOMAIN error for nonexistent.invalid");
     
     // 查询超时
     dns_query!("slow.example.com", "AAAA");
@@ -71,7 +71,7 @@ async fn simulate_error_scenarios() {
     // 服务器错误
     dns_query!("broken.example.com", "TXT");
     sleep(Duration::from_millis(20)).await;
-    dns_error!("broken.example.com", "SERVFAIL");
+    dns_error!("SERVFAIL error for broken.example.com");
     
     // 网络错误
     error!("🌐 网络连接失败: 无法连接到上游 DNS 服务器 8.8.8.8:53");

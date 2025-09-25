@@ -14,7 +14,7 @@ use rat_quickdns::{
         DnsResolverBuilder,
         strategy::QueryStrategy,
         types::{DnsQueryRequest, DnsRecordType},
-        resolver::EasyDnsResolver,
+        resolver::SmartDnsResolver,
     },
     error::Result,
 };
@@ -111,8 +111,12 @@ impl RoundRobinOptimizationDemo {
     }
     
     /// 创建基础ROUND_ROBIN解析器
-    async fn create_basic_resolver(&self) -> Result<EasyDnsResolver> {
-        let resolver = DnsResolverBuilder::new()
+    async fn create_basic_resolver(&self) -> Result<SmartDnsResolver> {
+        let resolver = DnsResolverBuilder::new(
+            QueryStrategy::RoundRobin,
+            true,
+            "global".to_string(),
+        )
             .query_strategy(QueryStrategy::RoundRobin)
             // 添加多个上游服务器
             .add_udp_upstream("阿里DNS", "223.5.5.5")
@@ -122,7 +126,7 @@ impl RoundRobinOptimizationDemo {
             .add_udp_upstream("Cloudflare DNS", "1.1.1.1")
             // 基础配置
             .with_timeout(Duration::from_secs(5)) // 默认5秒超时
-            .with_health_check(true)
+            .with_upstream_monitoring(true)
             .build()
             .await?;
         
@@ -130,8 +134,12 @@ impl RoundRobinOptimizationDemo {
     }
     
     /// 创建优化的ROUND_ROBIN解析器
-    async fn create_optimized_resolver(&self) -> Result<EasyDnsResolver> {
-        let resolver = DnsResolverBuilder::new()
+    async fn create_optimized_resolver(&self) -> Result<SmartDnsResolver> {
+        let resolver = DnsResolverBuilder::new(
+            QueryStrategy::RoundRobin,
+            true,
+            "global".to_string(),
+        )
             .query_strategy(QueryStrategy::RoundRobin)
             // 添加多个上游服务器
             .add_udp_upstream("阿里DNS", "223.5.5.5")
@@ -155,7 +163,7 @@ impl RoundRobinOptimizationDemo {
     /// 对解析器进行性能测试
     async fn benchmark_resolver(
         &self,
-        resolver: &EasyDnsResolver,
+        resolver: &SmartDnsResolver,
         name: String,
         iterations: usize,
     ) -> BenchmarkStats {
@@ -172,9 +180,10 @@ impl RoundRobinOptimizationDemo {
                 domain: domain.to_string(),
                 record_type: DnsRecordType::A,
                 enable_edns: true,
-                client_subnet: None,
+                client_address: None,
                 timeout_ms: None,
                 disable_cache: false,
+                enable_dnssec: false,
             };
             
             let query_start = Instant::now();

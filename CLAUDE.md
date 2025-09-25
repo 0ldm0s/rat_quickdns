@@ -75,7 +75,7 @@ cargo run --example dns_logger_example
 
 1. **配置严格性**: 使用`StrictDnsConfig`而非默认配置，所有参数必须显式设置
 2. **日志系统**: 使用`zerg_creep`日志库，已重新导出到crate根部
-3. **内存管理**: 集成`rat_quick_threshold`内存管理
+3. **内存管理**: 使用标准Rust内存管理
 4. **错误处理**: 使用`thiserror`定义明确的错误类型
 
 ## 代码风格
@@ -99,4 +99,3 @@ cargo run --example dns_logger_example
 - **序列化**: serde, bincode
 - **缓存**: lru, dashmap
 - **日志**: zerg_creep (本地路径依赖)
-- **内存管理**: rat_quick_threshold (本地路径依赖)

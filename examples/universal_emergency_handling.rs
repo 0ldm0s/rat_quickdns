@@ -36,15 +36,19 @@ impl UniversalEmergencyDemo {
     }
     
     /// 创建指定策略的解析器
-    async fn create_resolver_with_strategy(&self, strategy: QueryStrategy) -> Result<rat_quickdns::builder::EasyDnsResolver, DnsError> {
-        let builder = DnsResolverBuilder::new()
+    async fn create_resolver_with_strategy(&self, strategy: QueryStrategy) -> Result<rat_quickdns::builder::SmartDnsResolver, DnsError> {
+        let builder = DnsResolverBuilder::new(
+            strategy,
+            true,
+            "global".to_string(),
+        )
             .query_strategy(strategy)
             // 添加一些测试用的上游服务器（故意使用无效地址来模拟故障）
             .add_udp_upstream("Invalid1", "192.0.2.1:53") // RFC5737测试地址
             .add_udp_upstream("Invalid2", "192.0.2.2:53")
             .add_udp_upstream("Invalid3", "192.0.2.3:53")
             // 启用健康检查和决策引擎
-            .with_health_check(true)
+            .with_upstream_monitoring(true)
             .with_timeout(Duration::from_secs(1));  // 1秒超时
         
         builder.build().await
@@ -86,9 +90,10 @@ impl UniversalEmergencyDemo {
             domain: self.test_domain.clone(),
             record_type: DnsRecordType::A,
             enable_edns: true,
-            client_subnet: None,
+            client_address: None,
             timeout_ms: None,
             disable_cache: false,
+            enable_dnssec: false,
         };
         
         let start_time = Instant::now();
@@ -124,15 +129,18 @@ impl UniversalEmergencyDemo {
         println!("{}", "=".repeat(60));
         
         // 创建混合配置：一些有效服务器 + 一些无效服务器
-        let builder = DnsResolverBuilder::new()
-            .query_strategy(QueryStrategy::Smart)
+        let builder = DnsResolverBuilder::new(
+            QueryStrategy::Smart,
+            true,
+            "global".to_string(),
+        )
             // 添加有效的DNS服务器
             .add_udp_upstream("Cloudflare", "1.1.1.1:53")
             .add_udp_upstream("Google", "8.8.8.8:53")
             // 添加无效的DNS服务器
             .add_udp_upstream("Invalid1", "192.0.2.1:53")
             .add_udp_upstream("Invalid2", "192.0.2.2:53")
-            .with_health_check(true)
+            .with_upstream_monitoring(true)
             .with_timeout(Duration::from_secs(1));
         
         let resolver = match builder.build().await {
@@ -165,9 +173,10 @@ impl UniversalEmergencyDemo {
             domain: self.test_domain.clone(),
             record_type: DnsRecordType::A,
             enable_edns: true,
-            client_subnet: None,
+            client_address: None,
             timeout_ms: None,
             disable_cache: false,
+            enable_dnssec: false,
         };
         
         let start_time = Instant::now();
@@ -213,9 +222,10 @@ impl UniversalEmergencyDemo {
                 domain: "nonexistent-domain-12345.invalid".to_string(),
                 record_type: DnsRecordType::A,
                 enable_edns: true,
-                client_subnet: None,
+                client_address: None,
                 timeout_ms: None,
                 disable_cache: false,
+                enable_dnssec: false,
             };
             
             match resolver.query(request).await {

@@ -20,8 +20,7 @@ use tokio;
 use rand;
 use rat_quickdns::{
     DnsResolverBuilder,
-    resolver::Resolver,
-    builder::{EasyDnsResolver, types::{DnsQueryRequest, DnsRecordType}},
+    builder::{SmartDnsResolver, types::{DnsQueryRequest, DnsRecordType}},
     types::{Request, Query, RecordType, QClass, Flags},
     error::{DnsError, Result},
     transport::{TransportConfig, TlsConfig, HttpsConfig, HttpMethod},
@@ -230,8 +229,6 @@ async fn create_udp_resolver(server: &str) -> Result<rat_quickdns::builder::reso
 
 /// 创建DoT DNS解析器
 async fn create_dot_resolver(server: &str) -> Result<rat_quickdns::builder::resolver::SmartDnsResolver> {
-    // 使用全局地址空间（rat_quick_threshold 自动管理）
-    
     let resolver = rat_quickdns::builder::DnsResolverBuilder::new(
         rat_quickdns::builder::QueryStrategy::Smart,
         true,  // 启用 EDNS

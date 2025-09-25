@@ -4,7 +4,6 @@
 use rat_quickdns::{
     DnsResolverBuilder, RecordType, QueryStrategy,
 };
-use rat_quick_threshold::memory::UnifiedAddressSpace;
 use std::time::Duration;
 use tokio;
 
@@ -125,8 +124,6 @@ async fn test_mx_record_with_doh_server(
 ) -> Result<(bool, Duration, Vec<String>), String> {
     let start = std::time::Instant::now();
     
-    // 使用全局地址空间（rat_quick_threshold 自动管理）
-    
     // 创建带有预解析IP地址的DoH上游配置
     let mut doh_spec = rat_quickdns::upstream_handler::UpstreamSpec::doh(
         format!("{}-{}", server.name, server.region),
@@ -142,7 +139,6 @@ async fn test_mx_record_with_doh_server(
         QueryStrategy::Smart,
         true, // 启用EDNS
         "global".to_string(), // 当前区域
-        quickmem_config,
     )
         .with_timeout(Duration::from_secs(5))  // 减少超时时间，实现快速失败
         .with_retry_count(1)  // 减少重试次数，加快失败检测

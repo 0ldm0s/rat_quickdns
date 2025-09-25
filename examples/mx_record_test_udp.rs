@@ -6,7 +6,6 @@ use rat_quickdns::{
     upstream_handler::UpstreamSpec,
     logger::{init_dns_logger, info, debug, error, warn, trace},
 };
-use rat_quick_threshold::memory::UnifiedAddressSpace;
 use zerg_creep::logger::LevelFilter;
 use std::time::Duration;
 use tokio;
@@ -139,14 +138,6 @@ async fn test_mx_record_with_server(
     
     info!("🔍 开始查询: {} 通过 {}({})", test_case.domain, server.name, server.address);
     
-    // 创建QuickMem配置
-    let quickmem_config = QuickMemConfig {
-        max_data_size: 64 * 1024 * 1024, // 64MB
-        max_batch_count: 10000,
-        pool_initial_capacity: 1024,
-        pool_max_capacity: 10240,
-        enable_parallel: true,
-    };
     
     // 创建带有预解析IP地址的UDP上游配置
     let mut udp_spec = UpstreamSpec::udp(
@@ -163,7 +154,6 @@ async fn test_mx_record_with_server(
         QueryStrategy::Smart,
         true, // 启用EDNS
         "global".to_string(), // 当前区域
-        quickmem_config,
     )
         .with_timeout(Duration::from_secs(10))
         .with_retry_count(2)

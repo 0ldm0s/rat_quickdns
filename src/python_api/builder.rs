@@ -10,7 +10,6 @@ use crate::builder::strategy::QueryStrategy as RustQueryStrategy;
 use crate::upstream_handler::{UpstreamSpec, UpstreamManager};
 use super::resolver::PyDnsResolver;
 use super::types::PyQueryStrategy;
-use rat_quick_threshold::memory::UnifiedAddressSpace;
 
 /// Python版本的DNS解析器构建器
 /// 
