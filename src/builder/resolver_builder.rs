@@ -79,7 +79,7 @@ impl DnsResolverBuilder {
             true, // 临时默认值
             4096, // 临时默认值
             false, // 临时默认值
-            zerg_creep::logger::LevelFilter::Info, // 临时默认值
+            rat_logger::LevelFilter::Info, // 临时默认值
             false, // 临时默认值
         );
 
@@ -261,7 +261,7 @@ impl DnsResolverBuilder {
     }
     
     /// 设置日志级别
-    pub fn with_log_level(mut self, level: zerg_creep::logger::LevelFilter) -> Self {
+    pub fn with_log_level(mut self, level: rat_logger::LevelFilter) -> Self {
         self.config.log_level = level;
         self
     }
@@ -274,14 +274,14 @@ impl DnsResolverBuilder {
     
     /// 设置详细日志（Debug级别）
     pub fn with_verbose_logging(mut self) -> Self {
-        self.config.log_level = zerg_creep::logger::LevelFilter::Debug;
+        self.config.log_level = rat_logger::LevelFilter::Debug;
         self.config.enable_dns_log_format = true;
         self
     }
     
     /// 设置静默日志（Error级别）
     pub fn with_quiet_logging(mut self) -> Self {
-        self.config.log_level = zerg_creep::logger::LevelFilter::Error;
+        self.config.log_level = rat_logger::LevelFilter::Error;
         self
     }
     
@@ -345,11 +345,11 @@ impl DnsResolverBuilder {
             },
             LoggerInitStrategy::Debug => {
                 // 启用调试级别日志，显示所有调试信息
-                let _ = crate::logger::init_dns_logger(zerg_creep::logger::LevelFilter::Debug);
+                let _ = crate::logger::init_dns_logger(rat_logger::LevelFilter::Debug);
             },
             LoggerInitStrategy::Auto => {
                 // 根据配置自动初始化（原有逻辑）
-                if self.config.log_level == zerg_creep::logger::LevelFilter::Off {
+                if self.config.log_level == rat_logger::LevelFilter::Off {
                     // 日志级别为Off时使用静默模式
                     let _ = crate::logger::init_dns_logger_silent();
                 } else if self.config.enable_dns_log_format {

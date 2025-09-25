@@ -4,9 +4,9 @@
 use rat_quickdns::{
     builder::DnsResolverBuilder, RecordType, QueryStrategy,
     upstream_handler::UpstreamSpec,
-    logger::{init_dns_logger, info, debug, error, warn, trace},
+    logger::init_dns_logger, info, debug, error, warn, trace,
 };
-use zerg_creep::logger::LevelFilter;
+use rat_logger::LevelFilter;
 use std::time::Duration;
 use tokio;
 

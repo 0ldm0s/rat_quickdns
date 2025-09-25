@@ -32,10 +32,12 @@ pub use builder::{
 pub use builder::resolver::UpstreamStatus;
 pub use dns_response::{DnsResponseBuilder, DnsResponseWrapper};
 pub use logger::{init_dns_logger, init_dns_logger_silent, dns_format};
+
+// DNS日志宏已经通过#[macro_export]自动导出到crate根部，无需重新导出
 pub use config::{StrictDnsConfig, StrictConfigBuilder, ConfigError};
 
-// 重新导出zerg_creep基础日志宏到crate根部，供DNS宏使用
-pub use zerg_creep::{error, warn, info, debug, trace};
+// 重新导出rat_logger基础日志宏到crate根部，供DNS宏使用
+pub use rat_logger::{error, warn, info, debug, trace};
 
 
 // 注意：移除了 quick_dns 宏，因为它包含兜底行为

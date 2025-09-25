@@ -1,10 +1,10 @@
 //! DNS 日志系统使用示例
 //! 
-//! 展示如何使用基于 zerg_creep 的高性能 DNS 日志系统
+//! 展示如何使用基于 rat_logger 的高性能 DNS 日志系统
 
-use rat_quickdns::logger::{init_dns_logger, info, debug, error, warn, trace};
+use rat_quickdns::{logger::init_dns_logger, info, debug, error, warn, trace};
 use rat_quickdns::{dns_query, dns_response, dns_error, dns_timeout, dns_cache_hit, dns_cache_miss, dns_upstream, dns_strategy};
-use zerg_creep::logger::LevelFilter;
+use rat_logger::LevelFilter;
 use std::time::Duration;
 use tokio::time::sleep;
 

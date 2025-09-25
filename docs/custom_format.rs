@@ -1,12 +1,12 @@
-use zerg_creep::{error, warn, info, debug, trace};
-use zerg_creep::logger::{Level, LevelFilter};
-use zerg_creep::logger::builder::LoggerBuilder;
+use rat_logger::{error, warn, info, debug, trace};
+use rat_logger::{Level, LevelFilter};
+use rat_logger::LoggerBuilder;
 use std::io::Write;
 use chrono::Local;
 
 fn themed_format(
     buf: &mut dyn Write,
-    record: &zerg_creep::logger::Record
+    record: &rat_logger::config::Record
 ) -> std::io::Result<()> {
     let level = record.metadata.level;
     
@@ -40,9 +40,9 @@ fn themed_format(
 
 fn main() {
     let _ = LoggerBuilder::new()
-        .filter(LevelFilter::Trace) // 显示所有级别日志
-        .format(themed_format)
-        .init();
+        .with_level(LevelFilter::Trace) // 显示所有级别日志
+        .add_terminal_with_config(rat_logger::handler::term::TermConfig::default())
+        .init_global_logger();
 
     // 使用宏输出不同级别的日志
     error!("这是一个错误消息");

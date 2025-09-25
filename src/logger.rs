@@ -1,26 +1,34 @@
 //! DNS 查询器专用日志系统
-//! 
-//! 基于 zerg_creep 高性能日志库，提供适合 DNS 查询场景的彩色日志输出
+//!
+//! 基于 rat_logger 高性能日志库，提供适合 DNS 查询场景的彩色日志输出
+//!
+//! # 调用者初始化逻辑
+//!
+//! 这个模块遵循调用者初始化模式，用户必须先初始化rat_logger日志系统，
+//! 然后才能使用DNS日志功能。
+//!
+//! ## 推荐的初始化流程
+//!
+//! 调用者需要先初始化rat_logger系统，然后才能使用DNS日志功能。
 
-use zerg_creep::logger::{Level, LevelFilter};
-use zerg_creep::logger::builder::LoggerBuilder;
+use rat_logger::{Level, LevelFilter};
 use std::io::Write;
-use std::sync::Once;
+use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Local;
 
-// 重新导出 zerg_creep 的日志宏
-pub use zerg_creep::{error, warn, info, debug, trace};
-
 /// 确保日志器只初始化一次
-static INIT: Once = Once::new();
+static INIT: std::sync::Once = std::sync::Once::new();
+
+/// 日志初始化状态标志（线程安全）
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// DNS 查询专用日志格式化器
 pub fn dns_format(
-    buf: &mut dyn Write,
-    record: &zerg_creep::logger::Record
+    buf: &mut dyn std::io::Write,
+    record: &rat_logger::config::Record
 ) -> std::io::Result<()> {
     let level = record.metadata.level;
-    
+
     // DNS 主题配色方案
     let (level_color, level_bg, level_icon) = match level {
         Level::Error => ("\x1b[97m", "\x1b[41m", "🚫"), // 白字红底 - DNS 错误
@@ -29,16 +37,16 @@ pub fn dns_format(
         Level::Debug => ("\x1b[30m", "\x1b[46m", "🔍"), // 黑字青底 - DNS 调试
         Level::Trace => ("\x1b[97m", "\x1b[45m", "📡"), // 白字紫底 - DNS 追踪
     };
-    
+
     // 颜色定义
     let timestamp_color = "\x1b[90m"; // 灰色时间戳
     let message_color = "\x1b[37m";   // 亮白色消息
     let reset = "\x1b[0m";
-    
+
     // 获取当前时间
     let now = Local::now();
     let timestamp = now.format("%H:%M:%S%.3f");
-    
+
     writeln!(
         buf,
         "{}{} {}{}{:5}{} {} {}{}{}",
@@ -50,54 +58,53 @@ pub fn dns_format(
 }
 
 /// 初始化 DNS 查询器日志系统（线程安全，防止重复初始化）
-/// 
+///
+/// **注意**: 这个函数现在使用调用者初始化模式。调用者必须先初始化rat_logger日志系统。
+///
 /// # Arguments
 /// * `level` - 日志级别过滤器，传入 `LevelFilter::Off` 可禁用日志
-/// 
+///
 /// # Example
-/// ```
-/// use rat_quickdns::logger::init_dns_logger;
-/// use zerg_creep::logger::LevelFilter;
-/// 
-/// // 启用Info级别日志
-/// init_dns_logger(LevelFilter::Info).unwrap();
-/// 
-/// // 禁用所有日志
-/// init_dns_logger(LevelFilter::Off).unwrap();
-/// ```
+/// 使用方法：
+/// 1. 首先初始化rat_logger系统（调用者责任）
+/// 2. 然后调用此函数初始化DNS日志格式
 pub fn init_dns_logger(level: LevelFilter) -> Result<(), Box<dyn std::error::Error>> {
-    let mut init_result = Ok(());
-    
+    // 检查rat_logger是否已经初始化
+    // 注意：这里我们只是设置一个标志，实际的日志系统初始化由调用者负责
     INIT.call_once(|| {
-        // 只在第一次调用时初始化日志器
-        LoggerBuilder::new()
-            .filter(level)
-            .format(dns_format)
-            .init();
+        INITIALIZED.store(true, Ordering::SeqCst);
     });
-    
-    init_result
+
+    // 设置rat_logger的全局日志级别
+    rat_logger::core::set_max_level(level);
+
+    Ok(())
 }
 
 /// 安全的日志初始化函数，默认禁用日志输出
-/// 
+///
 /// 这个函数专门用于构造器，确保默认情况下不输出日志
 pub fn init_dns_logger_silent() -> Result<(), Box<dyn std::error::Error>> {
     init_dns_logger(LevelFilter::Off)
+}
+
+/// 检查DNS日志系统是否已初始化
+pub fn is_dns_logger_initialized() -> bool {
+    INITIALIZED.load(Ordering::SeqCst)
 }
 
 /// DNS 查询相关的便捷日志宏
 #[macro_export]
 macro_rules! dns_query {
     ($domain:expr, $record_type:expr) => {
-        $crate::logger::info!("🔍 查询 {} 记录: {}", $record_type, $domain);
+        $crate::info!("🔍 查询 {} 记录: {}", $record_type, $domain);
     };
 }
 
 #[macro_export]
 macro_rules! dns_response {
     ($domain:expr, $count:expr, $duration:expr) => {
-        $crate::logger::info!("✅ {} 响应: {} 条记录 ({}ms)", $domain, $count, $duration);
+        $crate::info!("✅ {} 响应: {} 条记录 ({}ms)", $domain, $count, $duration);
     };
 }
 
@@ -139,34 +146,34 @@ macro_rules! dns_transport {
 #[macro_export]
 macro_rules! dns_timeout {
     ($domain:expr, $timeout:expr) => {
-        $crate::logger::warn!("⏰ {} 查询超时: {}ms", $domain, $timeout);
+        $crate::warn!("⏰ {} 查询超时: {}ms", $domain, $timeout);
     };
 }
 
 #[macro_export]
 macro_rules! dns_cache_hit {
     ($domain:expr) => {
-        $crate::logger::debug!("💾 缓存命中: {}", $domain);
+        $crate::debug!("💾 缓存命中: {}", $domain);
     };
 }
 
 #[macro_export]
 macro_rules! dns_cache_miss {
     ($domain:expr) => {
-        $crate::logger::debug!("🔄 缓存未命中: {}", $domain);
+        $crate::debug!("🔄 缓存未命中: {}", $domain);
     };
 }
 
 #[macro_export]
 macro_rules! dns_upstream {
     ($server:expr, $domain:expr) => {
-        $crate::logger::trace!("📡 上游服务器 {} 查询: {}", $server, $domain);
+        $crate::trace!("📡 上游服务器 {} 查询: {}", $server, $domain);
     };
 }
 
 #[macro_export]
 macro_rules! dns_strategy {
     ($strategy:expr, $domain:expr) => {
-        $crate::logger::debug!("🎯 使用策略 {} 查询: {}", $strategy, $domain);
+        $crate::debug!("🎯 使用策略 {} 查询: {}", $strategy, $domain);
     };
 }

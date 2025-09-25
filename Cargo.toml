@@ -11,7 +11,7 @@ categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 # Local dependencies
-zerg_creep = { path = "../zerg_creep" }
+rat_logger = { path = "../../logger/rat_logger" }
 
 # Core async runtime
 tokio = { version = "1.0", features = ["net", "time", "rt", "macros", "sync", "io-util", "rt-multi-thread"] }

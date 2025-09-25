@@ -1,16 +1,16 @@
-//! 基于 zerg_creep 的日志系统
+//! 基于 rat_logger 的日志系统
 //! 提供统一的日志接口和配置
 
-use zerg_creep::logger::{Level, LevelFilter};
-use zerg_creep::logger::builder::LoggerBuilder;
-use zerg_creep::logger::config::{FileConfig, NetworkConfig};
+use rat_logger::{Level, LevelFilter};
+use rat_logger::LoggerBuilder;
+use rat_logger::config::{FileConfig, NetworkConfig};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use chrono::Local;
 
-// 重新导出 zerg_creep 的日志宏
-pub use zerg_creep::{error, warn, info, debug, trace};
+// 重新导出 rat_logger 的日志宏
+pub use rat_logger::{error, warn, info, debug, trace};
 
 /// 日志级别映射
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -140,7 +140,7 @@ impl LogConfig {
 /// 终端彩色格式化函数
 fn rat_engine_format(
     buf: &mut dyn Write,
-    record: &zerg_creep::logger::Record
+    record: &rat_logger::config::Record
 ) -> std::io::Result<()> {
     let level = record.metadata.level;
     
@@ -175,7 +175,7 @@ fn rat_engine_format(
 /// 文件格式化函数（无颜色）
 fn file_format(
     buf: &mut dyn Write,
-    record: &zerg_creep::logger::Record
+    record: &rat_logger::config::Record
 ) -> std::io::Result<()> {
     let now = Local::now();
     let timestamp = now.format("%Y-%m-%d %H:%M:%S%.3f");
@@ -192,7 +192,7 @@ fn file_format(
 /// UDP格式化函数（简洁格式）
 fn udp_format(
     buf: &mut dyn Write,
-    record: &zerg_creep::logger::Record
+    record: &rat_logger::config::Record
 ) -> std::io::Result<()> {
     let now = Local::now();
     let timestamp = now.format("%H:%M:%S%.3f");

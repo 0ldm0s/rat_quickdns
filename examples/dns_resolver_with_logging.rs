@@ -5,7 +5,7 @@
 
 use rat_quickdns::builder::{DnsResolverBuilder, QueryStrategy};
 use rat_quickdns::builder::types::{DnsQueryRequest, DnsRecordType};
-use zerg_creep::logger::LevelFilter;
+use rat_logger::LevelFilter;
 use std::time::Duration;
 
 #[tokio::main]
@@ -135,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
         .add_udp_upstream("OpenDNS", "208.67.222.222")
         .with_log_level(LevelFilter::Warn)   // 设置Warn级别
-        .with_dns_log_format(false)       // 禁用DNS专用格式，使用标准zerg_creep格式
+        .with_dns_log_format(false)       // 禁用DNS专用格式，使用标准rat_logger格式
         .with_timeout(Duration::from_secs(3))
         .build()
         .await?;
@@ -167,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("- quiet_logging(): Error级别 + DNS专用格式");
     println!("- with_log_level(): 自定义日志级别");
     println!("- with_dns_log_format(true): 启用DNS专用日志格式");
-    println!("- with_dns_log_format(false): 使用标准zerg_creep日志格式");
+    println!("- with_dns_log_format(false): 使用标准rat_logger日志格式");
     
     Ok(())
 }

@@ -79,7 +79,7 @@ pub struct CoreResolverConfig {
     /// 是否启用统计
     pub enable_stats: bool,
     /// 日志级别
-    pub log_level: zerg_creep::logger::LevelFilter,
+    pub log_level: rat_logger::LevelFilter,
     /// 是否启用DNS专用日志格式
     pub enable_dns_log_format: bool,
 }
@@ -107,7 +107,7 @@ impl CoreResolverConfig {
         recursion_desired: bool,
         buffer_size: usize,
         enable_stats: bool,
-        log_level: zerg_creep::logger::LevelFilter,
+        log_level: rat_logger::LevelFilter,
         enable_dns_log_format: bool,
     ) -> Self {
         Self {

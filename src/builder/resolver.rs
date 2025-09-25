@@ -578,7 +578,7 @@ impl Clone for SmartDnsResolver {
             recursion_desired: true,
             buffer_size: 4096,
             enable_stats: true,
-            log_level: zerg_creep::logger::LevelFilter::Info,
+            log_level: rat_logger::LevelFilter::Info,
             enable_dns_log_format: true,
         };
         
