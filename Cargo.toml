@@ -6,6 +6,9 @@ authors = ["0ldm0s <oldmos@gmail.com>"]
 description = "A high-performance, feature-rich DNS client library with support for multiple transport protocols, load balancing, caching, and filtering"
 readme = "README.md"
 license = "LGPL-3.0"
+repository = "https://github.com/0ldm0s/rat_quickdns"
+homepage = "https://github.com/0ldm0s/rat_quickdns"
+documentation = "https://docs.rs/rat_quickdns"
 keywords = ["dns", "networking", "async", "doh", "dot"]
 categories = ["network-programming", "asynchronous"]
 
