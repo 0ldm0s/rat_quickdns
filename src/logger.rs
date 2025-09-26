@@ -101,6 +101,9 @@ macro_rules! dns_query {
     };
 }
 
+/// DNS响应日志宏
+///
+/// 记录成功的DNS响应信息，包括域名、记录数量和响应时间
 #[macro_export]
 macro_rules! dns_response {
     ($domain:expr, $count:expr, $duration:expr) => {
@@ -108,6 +111,9 @@ macro_rules! dns_response {
     };
 }
 
+/// DNS错误日志宏
+///
+/// 记录DNS查询过程中的错误信息
 #[macro_export]
 macro_rules! dns_error {
     ($($arg:tt)*) => {
@@ -115,6 +121,9 @@ macro_rules! dns_error {
     };
 }
 
+/// DNS调试日志宏
+///
+/// 记录DNS查询过程中的调试信息
 #[macro_export]
 macro_rules! dns_debug {
     ($($arg:tt)*) => {
@@ -122,6 +131,9 @@ macro_rules! dns_debug {
     };
 }
 
+/// DNS信息日志宏
+///
+/// 记录DNS查询过程中的一般信息
 #[macro_export]
 macro_rules! dns_info {
     ($($arg:tt)*) => {
@@ -129,6 +141,9 @@ macro_rules! dns_info {
     };
 }
 
+/// DNS警告日志宏
+///
+/// 记录DNS查询过程中的警告信息
 #[macro_export]
 macro_rules! dns_warn {
     ($($arg:tt)*) => {
@@ -136,6 +151,9 @@ macro_rules! dns_warn {
     };
 }
 
+/// DNS传输日志宏
+///
+/// 记录DNS传输协议相关信息，如UDP、TCP、DoH、DoT的连接状态和数据传输
 #[macro_export]
 macro_rules! dns_transport {
     ($($arg:tt)*) => {
@@ -143,6 +161,9 @@ macro_rules! dns_transport {
     };
 }
 
+/// DNS超时日志宏
+///
+/// 记录DNS查询超时信息，包括域名和超时时间
 #[macro_export]
 macro_rules! dns_timeout {
     ($domain:expr, $timeout:expr) => {
@@ -150,6 +171,9 @@ macro_rules! dns_timeout {
     };
 }
 
+/// DNS缓存命中日志宏
+///
+/// 记录DNS缓存命中信息，表示查询结果从本地缓存中获取
 #[macro_export]
 macro_rules! dns_cache_hit {
     ($domain:expr) => {
@@ -157,6 +181,9 @@ macro_rules! dns_cache_hit {
     };
 }
 
+/// DNS缓存未命中日志宏
+///
+/// 记录DNS缓存未命中信息，表示需要向上游服务器发送查询请求
 #[macro_export]
 macro_rules! dns_cache_miss {
     ($domain:expr) => {
@@ -164,6 +191,9 @@ macro_rules! dns_cache_miss {
     };
 }
 
+/// DNS上游服务器查询日志宏
+///
+/// 记录向上游服务器发送DNS查询的详细信息，用于追踪查询路由
 #[macro_export]
 macro_rules! dns_upstream {
     ($server:expr, $domain:expr) => {
@@ -171,6 +201,9 @@ macro_rules! dns_upstream {
     };
 }
 
+/// DNS查询策略日志宏
+///
+/// 记录使用的DNS查询策略信息，如负载均衡、故障转移、缓存优先等策略选择
 #[macro_export]
 macro_rules! dns_strategy {
     ($strategy:expr, $domain:expr) => {

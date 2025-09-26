@@ -69,28 +69,63 @@ pub enum RecordData {
     /// CNAME记录 - 别名
     CNAME(String),
     /// MX记录 - 邮件交换
-    MX { priority: u16, exchange: String },
+    ///
+    /// # 字段
+    /// - `priority`: 优先级，数值越小优先级越高
+    /// - `exchange`: 邮件服务器域名
+    MX {
+        /// 优先级，数值越小优先级越高
+        priority: u16,
+        /// 邮件服务器域名
+        exchange: String
+    },
     /// NS记录 - 名称服务器
     NS(String),
     /// PTR记录 - 指针
     PTR(String),
     /// SOA记录 - 授权开始
+    ///
+    /// # 字段
+    /// - `mname`: 主名称服务器
+    /// - `rname`: 管理员邮箱
+    /// - `serial`: 序列号
+    /// - `refresh`: 刷新间隔（秒）
+    /// - `retry`: 重试间隔（秒）
+    /// - `expire`: 过期时间（秒）
+    /// - `minimum`: 最小TTL（秒）
     SOA {
+        /// 主名称服务器
         mname: String,
+        /// 管理员邮箱
         rname: String,
+        /// 序列号
         serial: u32,
+        /// 刷新间隔（秒）
         refresh: u32,
+        /// 重试间隔（秒）
         retry: u32,
+        /// 过期时间（秒）
         expire: u32,
+        /// 最小TTL（秒）
         minimum: u32,
     },
     /// TXT记录 - 文本
     TXT(Vec<String>),
     /// SRV记录 - 服务
+    ///
+    /// # 字段
+    /// - `priority`: 优先级，数值越小优先级越高
+    /// - `weight`: 权重，用于负载均衡
+    /// - `port`: 服务端口号
+    /// - `target`: 目标主机名
     SRV {
+        /// 优先级，数值越小优先级越高
         priority: u16,
+        /// 权重，用于负载均衡
         weight: u16,
+        /// 服务端口号
         port: u16,
+        /// 目标主机名
         target: String,
     },
     /// 未知记录类型

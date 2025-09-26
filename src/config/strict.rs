@@ -10,18 +10,25 @@ use crate::builder::strategy::QueryStrategy;
 /// 严格DNS配置错误类型
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    /// 缺少必需的配置参数
     #[error("Missing required configuration: {0}")]
     MissingRequired(String),
+    /// 无效的配置值
     #[error("Invalid configuration value: {0}")]
     InvalidValue(String),
+    /// 未配置上游服务器
     #[error("No upstreams configured - at least one upstream server is required")]
     NoUpstreams,
+    /// 无效的超时设置
     #[error("Invalid timeout: {0}")]
     InvalidTimeout(String),
+    /// 无效的重试次数
     #[error("Invalid retry count: {0}")]
     InvalidRetryCount(String),
+    /// 无效的缓冲区大小
     #[error("Invalid buffer size: {0}")]
     InvalidBufferSize(String),
+    /// 无效的端口号
     #[error("Invalid port: {0}")]
     InvalidPort(String),
 }

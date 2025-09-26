@@ -25,8 +25,8 @@ pub fn parse_server_address(server: &str, default_port: u16) -> Result<(String, 
 /// 从URL中解析主机名和端口
 /// 
 /// 支持HTTPS URL格式：
-/// - "https://example.com/dns-query" -> ("example.com", 443)
-/// - "https://example.com:8443/dns-query" -> ("example.com", 8443)
+/// - `<https://example.com/dns-query>` -> ("example.com", 443)
+/// - `<https://example.com:8443/dns-query>` -> ("example.com", 8443)
 pub fn parse_url_components(url: &str) -> Result<(String, u16)> {
     let parsed = url::Url::parse(url)
         .map_err(|e| DnsError::InvalidConfig(format!("Invalid URL: {}", e)))?;

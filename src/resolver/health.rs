@@ -7,10 +7,15 @@ use std::time::{SystemTime, Instant, Duration};
 /// 基础传输统计
 #[derive(Debug, Clone, Default)]
 pub struct BasicStats {
+    /// 成功计数
     pub success_count: u64,
+    /// 失败计数
     pub failure_count: u64,
+    /// 最后成功时间
     pub last_success: Option<SystemTime>,
+    /// 最后失败时间
     pub last_failure: Option<SystemTime>,
+    /// 平均响应时间（毫秒）
     pub avg_response_time: u64,
 }
 

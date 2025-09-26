@@ -353,26 +353,39 @@ pub enum DnsRecordValue {
     
     /// MX记录
     Mx {
+        /// 优先级，数值越小优先级越高
         priority: u16,
+        /// 邮件服务器域名
         exchange: String,
     },
     
     /// SRV记录
     Srv {
+        /// 优先级，数值越小优先级越高
         priority: u16,
+        /// 权重，用于负载均衡
         weight: u16,
+        /// 服务端口号
         port: u16,
+        /// 目标主机名
         target: String,
     },
     
     /// SOA记录
     Soa {
+        /// 主名称服务器
         mname: String,
+        /// 管理员邮箱
         rname: String,
+        /// 序列号
         serial: u32,
+        /// 刷新间隔（秒）
         refresh: u32,
+        /// 重试间隔（秒）
         retry: u32,
+        /// 过期时间（秒）
         expire: u32,
+        /// 最小TTL（秒）
         minimum: u32,
     },
 }
