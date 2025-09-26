@@ -1,10 +1,10 @@
 [package]
 name = "rat-quickdns-py"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2024"
 authors = ["0ldm0s <oldmos@gmail.com>"]
 description = "Python bindings for rat_quickdns - A fast, reliable DNS resolver library"
-repository = "https://git.sukiyaki.su/0ldm0s/rat_quickdns"
+repository = "https://github.com/0ldm0s/rat_quickdns"
 keywords = ["dns", "resolver", "async", "python", "networking"]
 categories = ["network-programming", "api-bindings"]
 readme = "README.md"
