@@ -1431,7 +1431,7 @@ dependencies = [
 
 [[package]]
 name = "rat-quickdns-py"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "pyo3",
  "pyo3-build-config",
