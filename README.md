@@ -1,5 +1,10 @@
 # rat_quickdns
 
+[![Crates.io](https://img.shields.io/crates/v/rat_quickdns.svg)](https://crates.io/crates/rat_quickdns)
+[![Crates.io](https://img.shields.io/crates/d/rat_quickdns.svg)](https://crates.io/crates/rat_quickdns)
+[![Crates.io](https://img.shields.io/crates/l/rat_quickdns.svg)](https://crates.io/crates/rat_quickdns)
+[![GitHub](https://img.shields.io/github/stars/0ldm0s/rat_quickdns.svg?style=social)](https://github.com/0ldm0s/rat_quickdns)
+
 高性能DNS查询库，基于Rust开发，支持多种协议和智能决策。
 
 ## 特性
