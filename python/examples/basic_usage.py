@@ -216,8 +216,7 @@ def utility_functions_example():
 def main():
     """主函数"""
     print(f"rat-quickdns-py 版本: {dns.__version__}")
-    print(f"作者: {dns.__author__}")
-    
+
     # 运行示例
     basic_resolve_example()
     custom_resolver_example()

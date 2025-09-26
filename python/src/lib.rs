@@ -31,7 +31,6 @@ fn rat_quickdns_py(py: Python, m: &PyModule) -> PyResult<()> {
     
     // 添加模块属性
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
-    m.add("__author__", "rat-quickdns-py contributors")?;
-    
+        
     Ok(())
 }
