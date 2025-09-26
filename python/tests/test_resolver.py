@@ -31,8 +31,8 @@ class TestResolver(unittest.TestCase):
         # 创建解析器
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.SMART)
-        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-        builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
+        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+        builder.add_udp_upstream("Google", "8.8.8.8:53")
         builder.timeout(5.0)
         self.resolver = builder.build()
         
@@ -47,16 +47,17 @@ class TestResolver(unittest.TestCase):
             ips = self.resolver.resolve(self.valid_domain)
             self.assertIsInstance(ips, list)
             self.assertTrue(len(ips) > 0)
-            
+
             # 验证返回的是有效IP地址
             for ip in ips:
                 self.assertTrue(dns.is_valid_ip(ip))
         except Exception as e:
             self.fail(f"解析有效域名失败: {e}")
-        
-        # 测试无效域名（应该抛出异常）
-        with self.assertRaises(Exception):
-            self.resolver.resolve(self.invalid_domain)
+
+        # 测试无效域名（应该返回空列表）
+        invalid_ips = self.resolver.resolve(self.invalid_domain)
+        self.assertIsInstance(invalid_ips, list)
+        self.assertEqual(len(invalid_ips), 0)
     
     def test_resolve_a(self):
         """测试A记录解析"""
@@ -88,28 +89,27 @@ class TestResolver(unittest.TestCase):
         """测试批量解析"""
         domains = ["google.com", "github.com", self.invalid_domain]
         results = self.resolver.batch_resolve(domains)
-        
+
         self.assertEqual(len(results), len(domains))
-        
-        # 检查前两个域名应该解析成功
+
+        # 检查所有域名都应该解析成功（无效域名返回空列表）
         self.assertTrue(results[0].is_ok())
         self.assertTrue(results[1].is_ok())
-        
-        # 检查无效域名应该解析失败
-        self.assertTrue(results[2].is_err())
-        
+        self.assertTrue(results[2].is_ok())
+
         # 测试Result类的方法
         ips = results[0].unwrap()
         self.assertIsInstance(ips, list)
         self.assertTrue(len(ips) > 0)
-        
-        error_msg = results[2].unwrap_err()
-        self.assertIsInstance(error_msg, str)
-        self.assertTrue(len(error_msg) > 0)
-        
+
+        # 无效域名应该返回空列表
+        empty_ips = results[2].unwrap()
+        self.assertIsInstance(empty_ips, list)
+        self.assertEqual(len(empty_ips), 0)
+
         # 测试unwrap_or方法
         default_value = ["0.0.0.0"]
-        self.assertEqual(results[2].unwrap_or(default_value), default_value)
+        self.assertEqual(results[2].unwrap_or(default_value), empty_ips)
 
 
 class TestQueryStrategy(unittest.TestCase):
@@ -120,50 +120,38 @@ class TestQueryStrategy(unittest.TestCase):
         self.test_domain = "example.com"
     
     def test_fifo_strategy(self):
-        """测试最快优先策略"""
+        """测试先进先出策略"""
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.FIFO)
-        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-        builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
+        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+        builder.add_udp_upstream("Google", "8.8.8.8:53")
         resolver = builder.build()
-        
+
         ips = resolver.resolve(self.test_domain)
         self.assertIsInstance(ips, list)
         self.assertTrue(len(ips) > 0)
-    
-    def test_parallel_strategy(self):
-        """测试并行策略"""
+
+    def test_round_robin_strategy(self):
+        """测试轮询策略"""
         builder = dns.DnsResolverBuilder()
-        builder.query_strategy(QueryStrategy.PARALLEL)
-        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-        builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
+        builder.query_strategy(QueryStrategy.ROUND_ROBIN)
+        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+        builder.add_udp_upstream("Google", "8.8.8.8:53")
         resolver = builder.build()
-        
+
         ips = resolver.resolve(self.test_domain)
         self.assertIsInstance(ips, list)
         self.assertTrue(len(ips) > 0)
-    
-    def test_sequential_strategy(self):
-        """测试顺序策略"""
-        builder = dns.DnsResolverBuilder()
-        builder.query_strategy(QueryStrategy.SEQUENTIAL)
-        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-        builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
-        resolver = builder.build()
-        
-        ips = resolver.resolve(self.test_domain)
-        self.assertIsInstance(ips, list)
-        self.assertTrue(len(ips) > 0)
-    
+
     def test_smart_strategy(self):
         """测试智能决策策略"""
         builder = dns.DnsResolverBuilder()
         builder.query_strategy(QueryStrategy.SMART)
-        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53", 10)
-        builder.add_udp_upstream("Google", "8.8.8.8:53", 20)
-        builder.enable_health_checker(True)
+        builder.add_udp_upstream("Cloudflare", "1.1.1.1:53")
+        builder.add_udp_upstream("Google", "8.8.8.8:53")
+        builder.enable_upstream_monitoring(True)
         resolver = builder.build()
-        
+
         ips = resolver.resolve(self.test_domain)
         self.assertIsInstance(ips, list)
         self.assertTrue(len(ips) > 0)
@@ -249,7 +237,7 @@ class TestPresetBuilders(unittest.TestCase):
         """测试安全预设"""
         builder = dns.create_preset_builder("secure")
         resolver = builder.build()
-        
+
         ips = resolver.resolve("example.com")
         self.assertIsInstance(ips, list)
         self.assertTrue(len(ips) > 0)

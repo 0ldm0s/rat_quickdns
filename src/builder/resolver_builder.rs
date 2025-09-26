@@ -30,7 +30,7 @@ pub enum LoggerInitStrategy {
 }
 
 /// DNS解析器构建器
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DnsResolverBuilder {
     /// 解析器配置
     config: CoreResolverConfig,

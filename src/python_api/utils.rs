@@ -268,28 +268,31 @@ pub fn create_preset_builder(preset: &str) -> pyo3::PyResult<crate::python_api::
     
     match preset {
         "fast" => {
-            // 快速配置：使用最快优先策略，添加高性能DNS服务器
+            // 快速配置：使用最快优先策略，添加国内高性能DNS服务器
             builder.query_strategy(&PyQueryStrategy::FIFO);
-            builder.add_udp_upstream("Cloudflare".to_string(), "1.1.1.1:53".to_string());
-            builder.add_udp_upstream("Google".to_string(), "8.8.8.8:53".to_string());
+            builder.add_udp_upstream("阿里DNS".to_string(), "223.5.5.5:53".to_string());
+            builder.add_udp_upstream("腾讯DNS".to_string(), "119.29.29.29:53".to_string());
             builder.timeout(3.0);
             builder.enable_edns(true);
         },
         "secure" => {
-            // 安全配置：使用DoH/DoT协议
+            // 安全配置：使用国内DoH/DoT协议
             builder.query_strategy(&PyQueryStrategy::SMART);
-            builder.add_doh_upstream("Cloudflare".to_string(), "https://1.1.1.1/dns-query".to_string())?;
-            builder.add_dot_upstream("Quad9".to_string(), "9.9.9.9:853".to_string());
+            builder.add_doh_upstream("阿里DNS".to_string(), "https://dns.alidns.com/dns-query".to_string())?;
+            builder.add_doh_upstream("腾讯DNS".to_string(), "https://doh.pub/dns-query".to_string())?;
+            builder.add_dot_upstream("阿里DoT".to_string(), "223.5.5.5:853".to_string());
+            builder.add_dot_upstream("腾讯DoT".to_string(), "1.12.12.12:853".to_string());
             builder.timeout(5.0);
             builder.enable_edns(true);
             builder.enable_upstream_monitoring(true);
         },
         "balanced" => {
-            // 平衡配置：混合使用多种协议和策略
+            // 平衡配置：混合使用国内多种协议和策略
             builder.query_strategy(&PyQueryStrategy::SMART);
-            builder.add_udp_upstream("Cloudflare".to_string(), "1.1.1.1:53".to_string());
-            builder.add_doh_upstream("Google".to_string(), "https://8.8.8.8/dns-query".to_string())?;
-            builder.add_udp_upstream("Quad9".to_string(), "9.9.9.9:53".to_string());
+            builder.add_udp_upstream("阿里DNS".to_string(), "223.5.5.5:53".to_string());
+            builder.add_udp_upstream("腾讯DNS".to_string(), "119.29.29.29:53".to_string());
+            builder.add_doh_upstream("阿里DoH".to_string(), "https://dns.alidns.com/dns-query".to_string())?;
+            builder.add_dot_upstream("腾讯DoT".to_string(), "1.12.12.12:853".to_string());
             builder.timeout(4.0);
             builder.enable_edns(true);
             builder.enable_upstream_monitoring(true);
