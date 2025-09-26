@@ -9,6 +9,7 @@ pub mod resolver;
 pub mod builder;
 pub mod types;
 pub mod utils;
+pub mod logging;
 
 use resolver::PyDnsResolver;
 use builder::PyDnsResolverBuilder;
@@ -23,12 +24,15 @@ pub fn init_python_module(_py: Python, m: &PyModule) -> pyo3::PyResult<()> {
     m.add_class::<PyDnsResult>()?;
     m.add_class::<PyTransportType>()?;
     m.add_class::<PyDnsRecordType>()?;
-    
+
     // 保持架构纯净性，只暴露核心构建器类
-    
+
     // 添加版本信息
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__author__", "0ldm0s <oldmos@gmail.com>")?;
-    
+
+    // 初始化日志模块
+    logging::init_logging_module(m)?;
+
     Ok(())
 }
