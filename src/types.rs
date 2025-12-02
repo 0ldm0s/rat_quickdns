@@ -2,9 +2,10 @@
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use bincode::{Encode, Decode};
 
 /// DNS查询请求
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Request {
     /// 事务ID
     pub id: u16,
@@ -17,7 +18,7 @@ pub struct Request {
 }
 
 /// DNS响应
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Response {
     /// 事务ID
     pub id: u16,
@@ -34,7 +35,7 @@ pub struct Response {
 }
 
 /// DNS查询问题
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct Query {
     /// 查询名称
     pub name: String,
@@ -45,7 +46,7 @@ pub struct Query {
 }
 
 /// DNS资源记录
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Record {
     /// 记录名称
     pub name: String,
@@ -60,7 +61,7 @@ pub struct Record {
 }
 
 /// DNS记录数据
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum RecordData {
     /// A记录 - IPv4地址
     A(Ipv4Addr),
@@ -133,7 +134,7 @@ pub enum RecordData {
 }
 
 /// DNS记录类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 #[repr(u16)]
 pub enum RecordType {
     /// A记录
@@ -159,7 +160,7 @@ pub enum RecordType {
 }
 
 /// DNS查询类别
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 #[repr(u16)]
 pub enum QClass {
     /// Internet类别
@@ -175,7 +176,7 @@ pub enum QClass {
 }
 
 /// DNS标志位
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct Flags {
     /// 查询/响应标志
     pub qr: bool,
@@ -216,7 +217,7 @@ pub enum ResponseCode {
 }
 
 /// EDNS客户端地址信息
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct ClientAddress {
     /// 客户端IP地址
     pub address: IpAddr,
