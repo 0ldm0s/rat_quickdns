@@ -243,13 +243,17 @@ impl SmartDnsResolver {
     /// FIFO查询策略
     async fn query_fifo(&self, request: &DnsQueryRequest) -> Result<(crate::Response, String)> {
         let record_type = self.convert_record_type(request.record_type);
-        
+
+        // 解析 client_address
+        let client_ip = request.client_address.as_ref()
+            .and_then(|ip| ip.parse().ok());
+
         if let Some(engine) = &self.decision_engine {
             // 使用决策引擎按FIFO顺序选择服务器
             if let Some(spec) = engine.select_fifo_upstream().await {
                 let start_time = Instant::now();
-                
-                match self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await {
+
+                match self.resolver.query_with_client_ip(&request.domain, record_type, crate::types::QClass::IN, client_ip).await {
                     Ok(response) => {
                         let duration = start_time.elapsed();
                         engine.update_metrics(&spec.name, duration, true, true).await;
@@ -273,13 +277,17 @@ impl SmartDnsResolver {
     /// 智能查询策略
     async fn query_smart(&self, request: &DnsQueryRequest) -> Result<(crate::Response, String)> {
         let record_type = self.convert_record_type(request.record_type);
-        
+
+        // 解析 client_address
+        let client_ip = request.client_address.as_ref()
+            .and_then(|ip| ip.parse().ok());
+
         if let Some(engine) = &self.decision_engine {
             // 使用决策引擎选择最优服务器
             if let Some(spec) = engine.select_smart_upstream().await {
                 let start_time = Instant::now();
-                
-                match self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await {
+
+                match self.resolver.query_with_client_ip(&request.domain, record_type, crate::types::QClass::IN, client_ip).await {
                     Ok(response) => {
                         let duration = start_time.elapsed();
                         engine.update_metrics(&spec.name, duration, true, true).await;
@@ -323,18 +331,22 @@ impl SmartDnsResolver {
     /// 轮询查询策略（优化版本）
     async fn query_round_robin(&self, request: &DnsQueryRequest) -> Result<(crate::Response, String)> {
         let record_type = self.convert_record_type(request.record_type);
-        
+
+        // 解析 client_address
+        let client_ip = request.client_address.as_ref()
+            .and_then(|ip| ip.parse().ok());
+
         if let Some(engine) = &self.decision_engine {
             let mut last_error = None;
             let mut attempted_servers = Vec::new();
-            
+
             // 最多尝试3次不同的服务器
             for attempt in 0..3 {
                 if let Some(spec) = engine.select_round_robin_upstream().await {
                     attempted_servers.push(spec.name.clone());
                     let start_time = Instant::now();
-                    
-                    match self.resolver.query(&request.domain, record_type, crate::types::QClass::IN).await {
+
+                    match self.resolver.query_with_client_ip(&request.domain, record_type, crate::types::QClass::IN, client_ip).await {
                         Ok(response) => {
                             let duration = start_time.elapsed();
                             engine.update_metrics(&spec.name, duration, true, true).await;
