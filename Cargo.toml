@@ -1,6 +1,6 @@
 [package]
 name = "rat_quickdns"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 authors = ["0ldm0s <oldmos@gmail.com>"]
 description = "A high-performance, feature-rich DNS client library with support for multiple transport protocols, load balancing, caching, and filtering"
@@ -15,7 +15,7 @@ categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 # Logging
-rat_logger = "0.3.1"
+rat_logger = "0.3.2"
 
 # Core async runtime
 tokio = { version = "1.0", features = ["net", "time", "rt", "macros", "sync", "io-util", "rt-multi-thread"] }
