@@ -37,7 +37,7 @@ reqwest = { version = "0.11", features = ["json"] }
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
 tokio-rustls = { version = "0.24" }
 rustls-native-certs = { version = "0.6" }
-webpki-roots = { version = "0.25" }
+webpki-roots = { version = "1.0.10" }
 ring = "0.16"
 native-tls = "0.2"
 
